@@ -401,7 +401,7 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 ## 8. 참고 문서
 
-- `1-domain-definition.md` (v1.1.2): 상태 값 정의(태깅값, 이벤트 상태, 캠페인 상태) — 색상 매핑 근거
+- `1-domain-definition.md` (v1.2.0): 상태 값 정의(태깅값, 이벤트 상태, 캠페인 상태) — 색상 매핑 근거
 - `2-prd.md` (v1.2.0): 6장 플랫폼/UI(반응형 웹, 접근성 기준 미정의)
 - `4-project-principle.md` (v1.2.0): 6장 프론트엔드 디렉토리 구조
 - `7-execution-plan.md` (v1.0.1): SETUP-03(프로젝트 초기 셋업, 디자인 토큰 반영 작업)

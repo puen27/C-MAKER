@@ -1,6 +1,6 @@
 # BranchSense ERD (개체-관계 다이어그램)
 
-- **버전**: v1.1.1
+- **버전**: v1.2.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -12,12 +12,13 @@
 | v1.0.0 | 2026-08-26 | 초안 작성 |
 | v1.1.0 | 2026-09-08 | 문서 정합성 점검 결과 반영: (1) `1-domain-definition.md` v1.1.0에 추가된 USER 세션 정책·표시 개인화 설정을 `USER` 테이블 컬럼으로 반영(§0 전제 문구 조정 포함). (2) `USER.role`을 `본부(마케팅)`/`본부(준법)` 구분이 가능하도록 확장하고 CONST-03·CONST-11을 갱신 |
 | v1.1.1 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 `USER.display_preferences` 컬럼과 관련 설명을 제거. 세션 정책 컬럼(`session_timeout_minutes`, `session_extendable`)은 유지 |
+| v1.2.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-08 반영: `BUSINESS`에 모집단 적재 컬럼(`permit_mgt_no`, `source_crs`, `status_source`, `licensed_on`, `population_as_of`) 추가, 좌표를 WGS84 전제로 명시(VAL-11), `biz_reg_no` NULL 허용. `SIGNAL.scope`, `RECOMMENDATION.freshness_score`/`reason_tier` 추가. CONST-13~15 신설. `is_exploration_slot` 설명에 "1~20위 내 포함, 21~23위 아님"을 명시해 기존 불일치(부록 A)를 해소 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.2) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.2.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.2.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+본 문서는 `1-domain-definition.md`(v1.2.0) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.2.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.3.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책, BUSINESS의 모집단 적재 속성)은 해당 엔티티 테이블의 컬럼으로 반영한다.
 
 Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 표기하되, 초기 스키마 마이그레이션에서 즉시 생성할지 여부는 `7-execution-plan.md`의 단계별 계획을 따른다.
 
@@ -88,6 +89,7 @@ erDiagram
         INT branch_id FK
         INT business_id FK "NULL 허용, 사업체 단위 신호가 아니면 NULL"
         VARCHAR signal_type "사업자/상권/거시환경"
+        VARCHAR scope "BUSINESS/INDUSTRY/AREA — 사유 계층, RULE-TARGET-06"
         DECIMAL intensity "0~1 정규화"
         DATE as_of_date "VAL-09"
         INT event_id FK "NULL 허용, 승격/병합 시 채워짐"
@@ -103,13 +105,18 @@ erDiagram
 
     BUSINESS {
         SERIAL id PK
+        VARCHAR permit_mgt_no "UNIQUE, 인허가 관리번호 = 병합 기준키, CONST-13"
         VARCHAR name
         VARCHAR industry_code
-        DECIMAL lat
-        DECIMAL lng
-        VARCHAR biz_reg_no "VAL-04"
+        DECIMAL lat "WGS84, VAL-11"
+        DECIMAL lng "WGS84, VAL-11"
+        VARCHAR source_crs "원본 좌표계 코드 (예: EPSG:5174), VAL-11"
+        VARCHAR biz_reg_no "VAL-04, NULL 허용 — 표준 인허가 데이터 미제공"
         VARCHAR operating_status "정상/휴업/폐업/영업정지"
+        VARCHAR status_source "PERMIT / NTS, CONST-15"
+        DATE licensed_on "인허가일자 — 신선도 항 R 계산용, RULE-TARGET-05"
         DATE status_checked_at
+        DATE population_as_of "모집단 적재 기준월, REQ-16"
     }
 
     RECOMMENDATION {
@@ -117,6 +124,8 @@ erDiagram
         INT branch_id FK
         INT business_id FK
         DECIMAL score
+        DECIMAL freshness_score "신선도 항 R, RULE-TARGET-05"
+        VARCHAR reason_tier "BUSINESS/INDUSTRY/AREA, RULE-TARGET-06"
         INT rank_in_branch
         BOOLEAN is_exploration_slot "RULE-TARGET-03/04"
         DATE recommended_on
@@ -225,12 +234,21 @@ erDiagram
 | USER | session_extendable | BOOLEAN | 세션 연장 UI 노출 여부 |
 | DATA_SOURCE_SNAPSHOT | raw_payload | JSONB | 재현성 검증(TEST-06)을 위한 원본 응답 보존 |
 | SIGNAL | intensity | DECIMAL(4,3) | 0.000~1.000 정규화값 |
+| SIGNAL | scope | VARCHAR(10) | 'BUSINESS'(그 사업체에만 적용) / 'INDUSTRY'(업종 전반) / 'AREA'(반경 내 전체). RECOMMENDATION.reason_tier 산정에 쓰인다(RULE-TARGET-06) |
 | SIGNAL | event_id | INT (FK → EVENT.id) | NULL이면 임계치 미달로 승격되지 않은 신호(RULE-SENSE-03) |
 | EVENT | status | VARCHAR(10) | 'ACTIVE'(활성) / 'MERGED'(쿨다운 내 병합됨, RULE-SENSE-01) / 'TRIMMED'(지점 상한 초과로 절사됨, RULE-SENSE-02) |
-| BUSINESS | biz_reg_no | VARCHAR(10) | VAL-04(10자리 숫자) |
+| BUSINESS | permit_mgt_no | VARCHAR(30) | 지방행정 인허가 관리번호. 월간 모집단 재적재 시 병합 기준키(CONST-13, REQ-16) |
+| BUSINESS | lat, lng | DECIMAL | WGS84(EPSG:4326)로만 저장(VAL-11, CONST-14) |
+| BUSINESS | source_crs | VARCHAR(20) | 원본 좌표계 코드(예: 'EPSG:5174'). NULL 불가(VAL-11, CONST-14) |
+| BUSINESS | biz_reg_no | VARCHAR(10) | VAL-04(10자리 숫자), **NULL 허용** — 표준 인허가 데이터는 사업자등록번호를 제공하지 않는다 |
 | BUSINESS | operating_status | VARCHAR(10) | '정상'/'휴업'/'폐업'/'영업정지' |
+| BUSINESS | status_source | VARCHAR(10) | 'PERMIT'(인허가 영업상태 기준) / 'NTS'(국세청 보완 조회로 갱신됨). `biz_reg_no`가 NULL이면 반드시 'PERMIT'(CONST-15, REQ-02) |
+| BUSINESS | licensed_on | DATE | 인허가일자. RULE-TARGET-05 신선도 항 ①(인허가 경과일 감쇠) 계산에 사용 |
+| BUSINESS | population_as_of | DATE | 모집단 적재 기준월(REQ-16, UC-17) |
+| RECOMMENDATION | freshness_score | DECIMAL(4,3) | RULE-TARGET-05 신선도 항 `R`, 0~1 정규화 |
+| RECOMMENDATION | reason_tier | VARCHAR(10) | 'BUSINESS'/'INDUSTRY'/'AREA' 중 선정 사유의 최상위 계층(RULE-TARGET-06). 채택률 대시보드의 상권사유비율 집계 기준 |
 | RECOMMENDATION | rank_in_branch | INT | 1~20, 지점·일자 내 순위 |
-| RECOMMENDATION | is_exploration_slot | BOOLEAN | RULE-TARGET-03의 탐색 슬롯 3건 여부 |
+| RECOMMENDATION | is_exploration_slot | BOOLEAN | RULE-TARGET-03의 탐색 슬롯 3건 여부. **1~20위 안에 포함되며 21~23위를 의미하지 않는다** |
 | BRIEF | citation_tags | JSONB | `[소스명, 기준일]` 배열, RULE-BRIEF-01 |
 | TAG_FEEDBACK | tag_value | VARCHAR(10) | 'VISITED'(방문함)/'HOLD'(보류)/'REJECTED'(부적합) |
 | TAG_FEEDBACK | reject_reason | VARCHAR(20) | VAL-06, tag_value='REJECTED'일 때만 필수 |
@@ -275,11 +293,15 @@ erDiagram
 | CONST-10 | `CAMPAIGN_DRAFT.has_ad_disclosure = FALSE`인 행은 `CAMPAIGN.status`를 'MANAGER_REVIEW'로 전이시킬 수 없다 | VAL-07 |
 | CONST-11 | `CAMPAIGN.status = 'HANDED_OFF'`가 되려면 `APPROVAL_LOG`에 `stage='MANAGER'`와 `stage='COMPLIANCE'` 승인이 모두 존재해야 한다 | RULE-CAMPAIGN-01 |
 | CONST-12 | `APPROVAL_LOG.stage = 'COMPLIANCE'` 행의 `approved_by`가 가리키는 `USER.role`은 반드시 `'HQ_COMPLIANCE'`여야 한다(`'HQ_MARKETING'` 등 다른 역할은 이 stage로 기록될 수 없다) | RULE-CAMPAIGN-01, VAL-08 |
+| CONST-13 | `BUSINESS.permit_mgt_no`(지방행정 인허가 관리번호)는 전체 사업체 중 유일하며, 월간 재적재 시 이 키로 병합한다(신규 행 생성 아님) | REQ-16 |
+| CONST-14 | `BUSINESS.lat/lng`는 WGS84로만 저장하며, `source_crs`가 NULL일 수 없다 | VAL-11 |
+| CONST-15 | `BUSINESS.biz_reg_no`가 NULL이면 `status_source`는 `'PERMIT'`여야 한다(국세청 조회 불가) | REQ-02 |
 
 ---
 
 ## 5. 참고 문서
 
-- `1-domain-definition.md` (v1.1.2): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
+- `1-domain-definition.md` (v1.2.0): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
 - `2-prd.md` (v1.2.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
-- `4-project-principle.md` (v1.2.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `4-project-principle.md` (v1.3.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `report/CHANGE-REQUEST_v1.md`: BUSINESS·SIGNAL·RECOMMENDATION 컬럼 보강(CHG-08) 근거

@@ -1,6 +1,6 @@
 # BranchSense 프로젝트 구조 설계 원칙
 
-- **버전**: v1.2.0
+- **버전**: v1.3.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -14,12 +14,13 @@
 | v1.1.1 | 2026-09-08 | 문서 정합성 점검 결과 반영: OPS-03에 본부 하위 역할(마케팅/준법) 기반 접근 제어 명시. 하위 문서 인용 버전 정정 |
 | v1.1.2 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 6장 디렉토리 구조에서 `ToggleSwitch.tsx`를 제거 |
 | v1.2.0 | 2026-09-08 | `2-prd.md` v1.2.0의 AWS Bedrock 결정 반영: "판단은 코드, 문장은 LLM" 전제를 Bedrock AI Agent 기준으로 갱신, `llm_client.py`를 `bedrock_agent_client.py`로 개명, OPS-01(환경변수 관리 → IAM 자격증명)·OPS-06(LLM 호출 격리 → 생성형 AI 호출 격리) 갱신 |
+| v1.3.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-07 반영: `localdata_connector`를 `permit_connector`로 개명하고 전수/변동분 함수 분리(NAME-B03), 6장 백엔드 디렉토리에 `population/`(모집단 적재)·`run_monthly.py`·`common/geo.py`·`common/schemas/business.py`·`targeting/reason_tier.py` 추가, `population`이 일간 SLA 파이프라인과 분리된 별도 진입점임을 §2에 명시 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.2), `2-prd.md`(v1.2.0), `3-user-scenario.md`(v1.0.1)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
+본 문서는 `1-domain-definition.md`(v1.2.0), `2-prd.md`(v1.2.0), `3-user-scenario.md`(v1.1.0)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
 
 전제 조건은 다음과 같으며, 아래 모든 원칙은 이 전제를 최우선으로 따른다.
 
@@ -61,16 +62,17 @@
 connectors (소스별 원본 수집, DATA_SOURCE_SNAPSHOT 적재)
   → normalizers (SIGNAL로 정규화, 기준일 부여)
     → sensing (임계치 판정 → EVENT 승격, RULE-SENSE-01~05)
-      → targeting (배제 → 스코어링 → TOP 20 + 탐색 슬롯, RULE-TARGET-01~04)
+      → targeting (배제 → 스코어링 → TOP 20, 그중 3건은 탐색 슬롯, RULE-TARGET-01~06)
         → briefing (AWS Bedrock AI Agent 호출로 BRIEF 생성, RULE-BRIEF-01~03)
           → export (CRM 파일 생성, DB 저장)
 ```
 
 - `connectors`는 소스 API 호출과 원본 응답의 스냅샷 적재만 담당한다. 정규화 로직을 포함하지 않는다.
 - `sensing`은 도메인 정의서 5.1절(이벤트 승격 판정) 순서를 그대로 구현하는 유일한 위치다.
-- `targeting`은 RULE-TARGET-02 스코어링 공식과 RULE-TARGET-03 탐색 슬롯 배정을 구현한다. Bedrock을 호출하지 않는다.
+- `targeting`은 RULE-TARGET-02 스코어링 공식(신선도 항 R 포함, RULE-TARGET-05)과 RULE-TARGET-03 탐색 슬롯 배정, RULE-TARGET-06 사유 계층 분류를 구현한다. Bedrock을 호출하지 않으며, 이미 `population`이 적재한 BUSINESS를 읽기만 한다(REQ-16, UC-17 선행 조건).
 - `briefing`은 확정된 RECOMMENDATION을 입력받아 문장을 생성하며, Bedrock AI Agent의 Action Group(도구)·Knowledge Base(RAG)로 조회한 값 외의 사실을 인용하면 안 된다(RULE-BRIEF-02). 이 검증(citation guard)은 briefing 내부에서 자체 완결되어야 한다.
 - 학습(`learning`)과 캠페인(`campaign`)은 각각 주간·이벤트 트리거 배치로 별도 진입점을 가지며, 위 일간 파이프라인과 프로세스를 공유하지 않는다.
+- **`population`은 일간 파이프라인에 속하지 않는다.** 월 1회 `run_monthly.py`로 실행되며, 일간 배치는 이미 적재된 BUSINESS를 읽기만 한다. 모집단 적재 실패가 일간 07:30 SLA를 침해하지 않도록 프로세스를 분리한다(REQ-16, UC-17).
 
 ### API 서버 레이어 (요청 처리 흐름)
 
@@ -114,9 +116,9 @@ components / pages (UI 렌더링)
 
 | 식별자 | 대상 | 규칙 |
 |---|---|---|
-| NAME-B01 | 파일명 | `snake_case` (예: `localdata_connector.py`, `event_promoter.py`, `weight_updater.py`). |
+| NAME-B01 | 파일명 | `snake_case` (예: `permit_connector.py`, `event_promoter.py`, `weight_updater.py`). |
 | NAME-B02 | 함수명 | `snake_case`, 동사로 시작 (예: `fetch_daily_signals`, `promote_event`, `score_recommendation`). |
-| NAME-B03 | 커넥터 함수 | 소스명을 그대로 드러낸다 (예: `nts_connector.fetch_business_status`, `localdata_connector.fetch_new_permits`). |
+| NAME-B03 | 커넥터 함수 | 소스명을 그대로 드러낸다 (예: `nts_connector.fetch_business_status`, `permit_connector.fetch_all_businesses`, `permit_connector.fetch_daily_changes`). 한 소스가 모집단과 신호 두 역할을 하는 경우 함수를 분리하고, 함수명에 역할을 드러낸다. 커넥터 이름은 **데이터의 정체**(예: 지방행정 인허가)를 따르며, 포털·호스트명(예: 옛 `localdata_connector`)을 따르지 않는다 — 취득처가 바뀌어도 이름이 거짓말이 되지 않게 한다 |
 | NAME-B04 | 타입 표기 | Pydantic 모델로 배치 단계 간 데이터, API 요청/응답을 정의한다 (`common/schemas/`). |
 
 ### 프론트엔드 (TypeScript)
@@ -171,22 +173,25 @@ components / pages (UI 렌더링)
 backend/
 ├── batch/
 │   ├── connectors/                 # 소스별 원본 수집 (스냅샷 적재만 담당)
-│   │   ├── nts_connector.py         # 국세청 사업자등록상태 (REQ-02)
-│   │   ├── localdata_connector.py   # 행안부 지방행정 인허가 (REQ-03)
+│   │   ├── nts_connector.py         # 국세청 사업자등록상태 (REQ-02, 보완 검증)
+│   │   ├── permit_connector.py      # 행안부 지방행정 인허가 — fetch_all_businesses(전수)/fetch_daily_changes(변동분) 2함수 (REQ-16, REQ-03)
 │   │   ├── sbiz_connector.py        # 소진공 상가(상권)정보 (REQ-04)
 │   │   ├── subway_connector.py      # 서울/부산 등 지하철 승하차 (REQ-03)
 │   │   ├── ecos_connector.py        # 한국은행 ECOS (REQ-03, REQ-11)
 │   │   ├── opinet_connector.py      # 오피넷 유가정보 (REQ-03, REQ-11)
 │   │   ├── kma_connector.py         # 기상청 특보 (REQ-03, REQ-10, REQ-12)
 │   │   └── disaster_msg_connector.py # 행안부 긴급재난문자 (REQ-12)
+│   ├── population/                 # 사업체 모집단 적재 (REQ-16, UC-17)
+│   │   └── business_loader.py
 │   ├── normalizers/                # 소스별 원본 → SIGNAL 정규화
 │   │   └── signal_normalizer.py
 │   ├── sensing/                    # 이벤트 승격 판정 (도메인 정의서 5.1절)
 │   │   ├── threshold_engine.py
 │   │   └── event_promoter.py
-│   ├── targeting/                  # 배제·스코어링·탐색 슬롯 (RULE-TARGET)
+│   ├── targeting/                  # 배제·스코어링(신선도 항 포함)·사유 계층·탐색 슬롯 (RULE-TARGET)
 │   │   ├── exclusion.py
-│   │   ├── scorer.py
+│   │   ├── scorer.py               # RULE-TARGET-02/05 (Score, 신선도 항 R)
+│   │   ├── reason_tier.py           # RULE-TARGET-06 사유 계층 분류
 │   │   └── exploration.py
 │   ├── briefing/                   # AWS Bedrock AI Agent 브리프 생성 (RULE-BRIEF)
 │   │   ├── bedrock_agent_client.py  # Bedrock Agent 호출 래퍼 (Action Group·Knowledge Base 연동)
@@ -200,6 +205,7 @@ backend/
 │   │   └── draft_generator.py
 │   ├── run_daily.py                 # 07:30 SLA 대상 파이프라인 진입점
 │   ├── run_weekly.py                 # 가중치 갱신 배치 진입점
+│   ├── run_monthly.py                # 모집단 적재 배치 진입점 (UC-17)
 │   └── run_quarterly.py              # 분기 신호 배치 진입점
 ├── api/
 │   ├── routers/
@@ -225,13 +231,15 @@ backend/
 │   └── app.py
 ├── common/
 │   ├── config.py                    # .env 로드
+│   ├── geo.py                        # EPSG:5174 → WGS84 좌표 변환 (VAL-11)
 │   ├── db/
 │   │   └── pool.py
 │   ├── schemas/                     # Pydantic 모델 (배치 단계 간 계약, API 요청/응답)
 │   │   ├── signal.py
 │   │   ├── event.py
 │   │   ├── recommendation.py
-│   │   └── brief.py
+│   │   ├── brief.py
+│   │   └── business.py               # BUSINESS 모집단 적재 계약 (REQ-16)
 │   └── snapshot_store.py            # DATA_SOURCE_SNAPSHOT 적재/조회
 ├── database/
 │   └── schema.sql
@@ -312,12 +320,12 @@ frontend/
 └── tsconfig.json
 ```
 
-> 위 트리는 REQ-01~15 및 UC-01~16을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다.
+> 위 트리는 REQ-01~16 및 UC-01~17을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다.
 
 ---
 
 ## 7. 참고 문서
 
-- `1-domain-definition.md` (v1.1.2): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
+- `1-domain-definition.md` (v1.2.0): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
 - `2-prd.md` (v1.2.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
-- `3-user-scenario.md` (v1.0.1): 시나리오 SC-01~08
+- `3-user-scenario.md` (v1.1.0): 시나리오 SC-01~08
