@@ -1,0 +1,57 @@
+.rec-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  cursor: pointer;
+}
+
+.rec-card.is-tagged {
+  opacity: 0.75;
+}
+
+.rec-card__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.rec-card__rank {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 20px;
+}
+
+.rec-card__name {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  flex: 1;
+}
+
+.rec-card__score {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-card__reason {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.rec-card__source-tag {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+  margin-left: var(--space-1);
+}
+
+.rec-card__actions {
+  display: flex;
+}

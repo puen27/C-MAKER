@@ -1,0 +1,67 @@
+/*
+ * 디자인 토큰 (docs/9-style-guide.md v1.3.0 §2.1, §3, §4 라이트 테마 기준)
+ * 이 파일의 값을 임의로 바꾸거나 새 색상/스페이싱 값을 추가하지 않는다.
+ * 스타일 변경이 필요하면 ui-designer 에이전트 / 9-style-guide.md 갱신을 통해 반영한다.
+ */
+:root {
+  /* Brand / Accent */
+  --color-primary: #00a651;
+  --color-primary-hover: #00913f;
+  --color-primary-bg: #e2f5ea;
+
+  /* Neutral */
+  --color-bg: #f5f6f6;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f0f2f2;
+  --color-border: #dfe3e3;
+  --color-text: #16191a;
+  --color-text-secondary: #6b7576;
+  --color-text-disabled: #a3aaab;
+
+  /* Semantic */
+  --color-success: #0e7c72;
+  --color-success-bg: #dcf0ed;
+  --color-warning: #b3610a;
+  --color-warning-bg: #f6e9d8;
+  --color-danger: #9b2c2c;
+  --color-danger-bg: #f5e1e1;
+  --color-info: #2a5c8a;
+  --color-info-bg: #e5eef5;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Malgun Gothic", "맑은 고딕", sans-serif;
+  --font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 28px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.6;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* Shadow */
+  --shadow-card: 0 1px 2px rgba(15, 23, 24, 0.05), 0 4px 12px -8px rgba(15, 23, 24, 0.15);
+  --shadow-modal: 0 4px 16px rgba(15, 23, 24, 0.2);
+}
