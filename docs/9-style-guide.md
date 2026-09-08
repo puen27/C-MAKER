@@ -1,6 +1,6 @@
 # BranchSense 프론트엔드 스타일 가이드
 
-- **버전**: v1.2.0
+- **버전**: v1.3.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -14,16 +14,17 @@
 | v1.1.1 | 2026-09-08 | 문서 정합성 점검 결과 반영: 하위 문서 인용 버전 정정, 접근성 문구를 `2-prd.md` v1.1.0과 동일하게 "표시 개인화 옵션은 있으나 정식 a11y 기준은 미정의"로 조정 |
 | v1.1.2 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 §5.8 토글 스위치 컴포넌트를 삭제하고 이후 절 번호를 재정렬(5.9→5.8, 5.10→5.9, 5.11→5.10). 토글 관련 서술을 디자인 톤·토큰 절에서 제거 |
 | v1.2.0 | 2026-09-08 | 배치 지연/실패 대비 수동 재연동 버튼(REQ-17, UC-18) 반영: §5.10 배너 컴포넌트에 우측 액션 슬롯(`.banner__action`, outline pill 버튼)과 진행중/쿨다운 상태 서술 추가 |
+| v1.3.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: `8-wireframe.md`의 지점 등록/수정 화면(옛 §3) 제거에 따라 `8-wireframe.md` 장 번호 인용을 전부 갱신(4→3, 6→5, 7→6, 8→7). 지오코딩 검색 아이콘(🔍) 사용 예시를 제거(해당 화면이 사라져 근거 없음). 필수 항목 검증 서술의 예시 화면을 지점 등록 폼에서 임계치 관리 화면으로 교체 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 프론트엔드(`4-project-principle.md` 6장, `7-execution-plan.md`의 FE 작업 항목) 개발 시 사용할 시각 스타일(컬러/타이포그래피/스페이싱/컴포넌트 톤)을 정의한다. `8-wireframe.md`(v1.2.0)에 정의된 실제 화면 구조에 스타일을 입힌다.
+본 문서는 프론트엔드(`4-project-principle.md` 6장, `7-execution-plan.md`의 FE 작업 항목) 개발 시 사용할 시각 스타일(컬러/타이포그래피/스페이싱/컴포넌트 톤)을 정의한다. `8-wireframe.md`(v1.3.0)에 정의된 실제 화면 구조에 스타일을 입힌다.
 
 - 은행 영업점 실무자가 매일 아침 판단을 내리는 업무 도구라는 점을 최우선으로 반영한다 — 화려함보다 **신뢰감과 즉시 판독 가능성**을 우선한다.
-- `2-prd.md`(v1.3.0) 6장에 따라 데스크톱 우선(1280px)·태블릿 대응(768px)으로 설계하며, 접근성(a11y) 세부 기준은 별도로 정의하지 않는다.
-- `4-project-principle.md`(v1.4.0) 기준 프론트엔드 스택은 React 19 + TypeScript이며, 특정 CSS 프레임워크는 아직 채택하지 않았다. 아래 토큰은 CSS 커스텀 프로퍼티(`:root` 변수)로 정의해 CSS Modules 등 어떤 구현 방식에서도 재사용할 수 있게 했다.
+- `2-prd.md`(v1.4.0) 6장에 따라 데스크톱 우선(1280px)·태블릿 대응(768px)으로 설계하며, 접근성(a11y) 세부 기준은 별도로 정의하지 않는다.
+- `4-project-principle.md`(v1.5.0) 기준 프론트엔드 스택은 React 19 + TypeScript이며, 특정 CSS 프레임워크는 아직 채택하지 않았다. 아래 토큰은 CSS 커스텀 프로퍼티(`:root` 변수)로 정의해 CSS Modules 등 어떤 구현 방식에서도 재사용할 수 있게 했다.
 - 은행 내부망 배포를 고려해 외부 CDN 웹폰트에 의존하지 않고 시스템 폰트 스택을 사용한다.
 - 라이트/다크 두 테마의 토큰을 함께 정의한다. `<html data-theme="dark">` 속성 전환으로 다크모드를 구현한다.
 - (v1.1.0) 2026-09-08 제공된 NH뱅크 인터넷뱅킹 화면 캡처를 시각 참고 자료로 반영한다. 브랜드 로고·문구·실제 계좌 정보를 그대로 재현하는 것이 목적이 아니라, **은행 실무자에게 이미 익숙한 톤(그린 브랜드 컬러, pill형 액션 버튼, 카드형 계좌 리스트, 상단 유틸리티 바 구성)** 을 BranchSense에도 일관되게 적용하기 위함이다.
@@ -189,10 +190,10 @@
 | 종류 | 스타일 | 사용처 |
 |---|---|---|
 | Primary (pill) | `background: var(--color-primary)`, 흰 텍스트, `border-radius: var(--radius-full)`, `padding: var(--space-2) var(--space-4)`, medium | 저장, 로그인, 승인, 카드 내 인라인 액션(예: 방문 체크리스트 열기) |
-| Primary (사각) | `background: var(--color-primary)`, 흰 텍스트, `border-radius: var(--radius-sm)`, medium | 폼 제출형 버튼(지점 등록, 임계치 저장 등 페이지 전체 폭 버튼) — 카드 내부가 아닌 위치에서는 사각 라운드 유지 |
+| Primary (사각) | `background: var(--color-primary)`, 흰 텍스트, `border-radius: var(--radius-sm)`, medium | 폼 제출형 버튼(임계치 저장 등 페이지 전체 폭 버튼) — 카드 내부가 아닌 위치에서는 사각 라운드 유지 |
 | Secondary (outline pill) | 배경 없음, `border: 1px solid var(--color-border)`, `border-radius: var(--radius-full)` | `관리` 드롭다운형 버튼처럼 pill 그룹과 나란히 놓이는 보조 액션 |
 | Secondary (outline 사각) | 배경 없음, `border: 1px solid var(--color-border)`, `border-radius: var(--radius-sm)` | 취소, 필터 초기화 |
-| Tag-Visited | `background: var(--color-success-bg)`, `color: var(--color-success)`, `border-radius: var(--radius-full)` | 태깅 '방문함' 버튼 (`8-wireframe.md` 4장) |
+| Tag-Visited | `background: var(--color-success-bg)`, `color: var(--color-success)`, `border-radius: var(--radius-full)` | 태깅 '방문함' 버튼 (`8-wireframe.md` 3장) |
 | Tag-Hold | `background: var(--color-warning-bg)`, `color: var(--color-warning)`, `border-radius: var(--radius-full)` | 태깅 '보류' 버튼 |
 | Tag-Rejected | `background: var(--color-danger-bg)`, `color: var(--color-danger)`, `border-radius: var(--radius-full)` | 태깅 '부적합' 버튼 |
 | Danger | `color: var(--color-danger)`, 배경 없음 | 캠페인 반려 |
@@ -219,8 +220,8 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 }
 ```
 
-- 오류 메시지는 입력창 바로 아래, `--font-size-xs` + `--color-danger`로 표시한다(`8-wireframe.md` 3장 지점 등록 폼의 필수 항목 검증).
-- 임계치 관리 화면(`8-wireframe.md` 7장)의 숫자 입력은 `text-align: right; font-variant-numeric: tabular-nums`를 적용한다.
+- 오류 메시지는 입력창 바로 아래, `--font-size-xs` + `--color-danger`로 표시한다(`8-wireframe.md` 6장 임계치 관리 화면의 필수 항목 검증).
+- 임계치 관리 화면(`8-wireframe.md` 6장)의 숫자 입력은 `text-align: right; font-variant-numeric: tabular-nums`를 적용한다.
 
 ### 5.3 상태 배지
 
@@ -261,12 +262,12 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 }
 ```
 
-- `8-wireframe.md` 4장 오늘의 접촉 TOP 20은 세로 리스트(카드 20개)로 배치하며, 태블릿 이하에서도 동일하게 1열 리스트를 유지한다(데이터 밀도 우선, 2장 참조).
+- `8-wireframe.md` 3장 오늘의 접촉 TOP 20은 세로 리스트(카드 20개)로 배치하며, 태블릿 이하에서도 동일하게 1열 리스트를 유지한다(데이터 밀도 우선, 2장 참조).
 - 태깅 완료된 카드는 `opacity: 0.75`로 낮추되 목록에서 사라지지 않는다(재태깅 가능성 유지).
 
 ### 5.5 KPI 스탯 타일
 
-`8-wireframe.md` 6장(운영 브리핑), 8장(채택률 대시보드)에서 사용한다.
+`8-wireframe.md` 5장(운영 브리핑), 7장(채택률 대시보드)에서 사용한다.
 
 ```css
 .stat-tile {
@@ -301,7 +302,7 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 ### 5.7 탭 내비게이션 (밑줄 인디케이터)
 
-참고 캡처의 `출금계좌 · 저축성 · 대출 · 펀드 · 다른금융` 탭 전환 구조에 대응한다. `8-wireframe.md` 4장(추천 명부의 상태 필터 탭 등 동일 화면 내 뷰 전환)에서 사용한다.
+참고 캡처의 `출금계좌 · 저축성 · 대출 · 펀드 · 다른금융` 탭 전환 구조에 대응한다. `8-wireframe.md` 3장(추천 명부의 상태 필터 탭 등 동일 화면 내 뷰 전환)에서 사용한다.
 
 ```css
 .tabs {
@@ -334,7 +335,7 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 ### 5.9 데이터 테이블
 
-`8-wireframe.md` 7장(임계치 관리), 8장(채택률 대시보드)에서 사용한다.
+`8-wireframe.md` 6장(임계치 관리), 7장(채택률 대시보드)에서 사용한다.
 
 ```css
 .table th {
@@ -358,7 +359,7 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 ### 5.10 배너 (데이터 지연 · 미태깅 상기)
 
-`8-wireframe.md` 1장(지연 배너), 4장(미태깅 배너)에서 사용한다.
+`8-wireframe.md` 1장(지연 배너), 3장(미태깅 배너)에서 사용한다.
 
 ```css
 .banner {
@@ -402,7 +403,7 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 업무 도구의 성격상 장식적 아이콘 사용을 최소화한다.
 
-- 사용 위치: 사이드바 메뉴 아이콘, 상태 배지 접두 아이콘(경고 △, 지연 ⏱ 등 최소 텍스트 기호), 지오코딩 검색 아이콘(🔍, `8-wireframe.md` 3장).
+- 사용 위치: 사이드바 메뉴 아이콘, 상태 배지 접두 아이콘(경고 △, 지연 ⏱ 등 최소 텍스트 기호).
 - 아이콘 크기: 인라인 `16px`, 사이드바 메뉴 `20px`.
 - 별도 아이콘 폰트/라이브러리 도입 여부는 SETUP-03(`7-execution-plan.md`) 진행 시 결정하며, 이 문서는 크기·색상 토큰만 규정한다.
 
@@ -410,11 +411,12 @@ Hover/active 시 `--color-primary-hover`로 전환, 비활성 상태는 `--color
 
 ## 8. 참고 문서
 
-- `1-domain-definition.md` (v1.3.0): 상태 값 정의(태깅값, 이벤트 상태, 캠페인 상태) — 색상 매핑 근거
-- `2-prd.md` (v1.3.0): 6장 플랫폼/UI(반응형 웹, 접근성 기준 미정의)
-- `4-project-principle.md` (v1.4.0): 6장 프론트엔드 디렉토리 구조
+- `1-domain-definition.md` (v1.4.0): 상태 값 정의(태깅값, 이벤트 상태, 캠페인 상태) — 색상 매핑 근거
+- `2-prd.md` (v1.4.0): 6장 플랫폼/UI(반응형 웹, 접근성 기준 미정의)
+- `4-project-principle.md` (v1.5.0): 6장 프론트엔드 디렉토리 구조
 - `7-execution-plan.md` (v1.0.1): SETUP-03(프로젝트 초기 셋업, 디자인 토큰 반영 작업)
-- `8-wireframe.md` (v1.2.0): 화면별 레이아웃 구조 (본 스타일 가이드가 스타일을 입히는 대상)
+- `8-wireframe.md` (v1.3.0): 화면별 레이아웃 구조 (본 스타일 가이드가 스타일을 입히는 대상)
+- `report/db-schema-decisions-review.md`: `8-wireframe.md` 장 번호 변경(지점 등록 화면 제외) 근거
 - NH뱅크 인터넷뱅킹 화면 캡처 (사용자 제공, 2026-09-08): §1 디자인 톤, §2.1 브랜드 컬러, §5.1/5.3/5.7/5.8 컴포넌트(pill 버튼, outline 배지, 탭 밑줄, 상단 유틸리티 바)의 시각 참고 자료. 문서로 보관되어 있지 않으므로 실제 색상값 재확인이 필요할 경우 §9-미확정 사항 참고
 
 ---

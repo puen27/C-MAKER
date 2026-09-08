@@ -1,6 +1,6 @@
 # BranchSense 프로젝트 구조 설계 원칙
 
-- **버전**: v1.4.0
+- **버전**: v1.5.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -16,12 +16,13 @@
 | v1.2.0 | 2026-09-08 | `2-prd.md` v1.2.0의 AWS Bedrock 결정 반영: "판단은 코드, 문장은 LLM" 전제를 Bedrock AI Agent 기준으로 갱신, `llm_client.py`를 `bedrock_agent_client.py`로 개명, OPS-01(환경변수 관리 → IAM 자격증명)·OPS-06(LLM 호출 격리 → 생성형 AI 호출 격리) 갱신 |
 | v1.3.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-07 반영: `localdata_connector`를 `permit_connector`로 개명하고 전수/변동분 함수 분리(NAME-B03), 6장 백엔드 디렉토리에 `population/`(모집단 적재)·`run_monthly.py`·`common/geo.py`·`common/schemas/business.py`·`targeting/reason_tier.py` 추가, `population`이 일간 SLA 파이프라인과 분리된 별도 진입점임을 §2에 명시 |
 | v1.4.0 | 2026-09-08 | 배치 수동 재실행(REQ-17, UC-18) 반영: API 서버 레이어에 `batch.router.py`/`batch.service.py`/`batch_run.repository.py` 추가하고 수동 재실행 처리 방식(별도 프로세스 기동, 요청 즉시 응답) 명시; 프론트엔드에 `batch.api.ts`·`useTriggerBatch`·`useBatchRunStatus`·`ManualBatchTrigger.tsx`·`batchRun.ts` 추가 |
+| v1.5.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: 지점·계정 등록/수정 전용 화면·API를 만들지 않기로 함에 따라 백엔드 `branches.router.py`/`branch.service.py`/`branch.repository.py`, 프론트엔드 `branch.api.ts`/`useBranch.ts`/`components/branch/BranchSetupForm.tsx`/`pages/BranchSetupPage.tsx`를 디렉토리 구조에서 제거(API-01·FE-01·UC-01·UC-02 MVP 스코프 제외). 백엔드에 좌표 지오코딩 전용 배치(`geocoding/geocode_job.py`, 10분 주기, `run_daily.py`와 무관한 별도 진입점) 추가. TEST-04 예시에서 "지점 등록·수정"을 제거 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.3.0), `2-prd.md`(v1.3.0), `3-user-scenario.md`(v1.2.0)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
+본 문서는 `1-domain-definition.md`(v1.4.0), `2-prd.md`(v1.4.0), `3-user-scenario.md`(v1.2.0)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
 
 전제 조건은 다음과 같으며, 아래 모든 원칙은 이 전제를 최우선으로 따른다.
 
@@ -144,7 +145,7 @@ components / pages (UI 렌더링)
 | TEST-01 | 우선순위 1: 이벤트 승격 판정(도메인 정의서 5.1절)은 임계치 경계값·쿨다운 경계·상한 절사 케이스를 포함한 단위 테스트를 반드시 작성한다. |
 | TEST-02 | 우선순위 2: 배제 우선순위(RULE-TARGET-01), 스코어링 공식(RULE-TARGET-02), 채택률·가중치 계산(도메인 정의서 5.2절)은 경계값(표본 30건 미만, 클리핑 상하한)을 포함한 단위 테스트를 작성한다. |
 | TEST-03 | 우선순위 3: 브리프 생성의 그라운딩 검증(RULE-BRIEF-02, 근거 없는 문장 차단)은 회귀 테스트셋으로 주기 검증한다(`2-prd.md` 6장). |
-| TEST-04 | 그 외 단순 CRUD 엔드포인트(지점 등록·수정, 태깅 저장, 임계치 저장 등)는 통합 테스트 또는 수동 확인(Postman/curl)으로 검증한다. |
+| TEST-04 | 그 외 단순 CRUD 엔드포인트(태깅 저장, 임계치 저장 등)는 통합 테스트 또는 수동 확인(Postman/curl)으로 검증한다. 지점·계정 등록·수정은 API-01·FE-01 MVP 스코프 제외에 따라 운영자 psql 직접 조작이며 이 테스트 대상이 아니다 |
 | TEST-05 | 프론트엔드는 별도 단위 테스트를 강제하지 않는다. `3-user-scenario.md`의 SC-01~09 흐름 기준 수동 확인으로 검증한다. |
 | TEST-06 | 배치 전체는 재현성 검증을 위해, 동일한 스냅샷·임계치·가중치 버전을 입력했을 때 동일한 RECOMMENDATION·BRIEF가 산출되는지 분기 단위로 검증한다(PRIN-08). |
 | TEST-07 | 백엔드는 ruff(린트) + mypy(타입 검사)를 최소 수준으로 적용한다. 프론트엔드는 ESLint + Prettier를 사용한다. |
@@ -205,13 +206,14 @@ backend/
 │   ├── campaign/                   # 캠페인 트리거·초안 생성 (Phase 3, RULE-CAMPAIGN)
 │   │   ├── trigger.py
 │   │   └── draft_generator.py
+│   ├── geocoding/                   # 지점 좌표 채우기 (RULE-BRANCH-03) — run_daily.py와 무관한 별도 진입점
+│   │   └── geocode_job.py            # 10분 주기 실행, lat/lng NULL 또는 신규 주소 대상, 재시도·알림 없음
 │   ├── run_daily.py                 # 07:30 SLA 대상 파이프라인 진입점
 │   ├── run_weekly.py                 # 가중치 갱신 배치 진입점
 │   ├── run_monthly.py                # 모집단 적재 배치 진입점 (UC-17)
 │   └── run_quarterly.py              # 분기 신호 배치 진입점
 ├── api/
 │   ├── routers/
-│   │   ├── branches.router.py
 │   │   ├── recommendations.router.py
 │   │   ├── tags.router.py
 │   │   ├── thresholds.router.py
@@ -219,13 +221,11 @@ backend/
 │   │   ├── adoption.router.py
 │   │   └── batch.router.py          # 배치 수동 재실행 (REQ-17, UC-18)
 │   ├── services/
-│   │   ├── branch.service.py
 │   │   ├── tag.service.py           # 태깅 저장 (RULE-LEARN-01/02)
 │   │   ├── threshold.service.py     # 임계치·가중치 관리자 설정 (REQ-14)
 │   │   ├── campaign.service.py      # 승인 흐름 (RULE-CAMPAIGN-01)
 │   │   └── batch.service.py         # 수동 재실행 권한·쿨다운·중복실행 검증 (RULE-SENSE-06, VAL-12)
 │   ├── repositories/
-│   │   ├── branch.repository.py
 │   │   ├── recommendation.repository.py
 │   │   ├── tag.repository.py
 │   │   ├── campaign.repository.py
@@ -260,7 +260,6 @@ frontend/
 │   ├── api/
 │   │   ├── client.ts                 # 공통 fetch 래퍼 (baseURL, 토큰 헤더, 에러 파싱)
 │   │   ├── auth.api.ts
-│   │   ├── branch.api.ts
 │   │   ├── recommendation.api.ts
 │   │   ├── brief.api.ts
 │   │   ├── tag.api.ts
@@ -270,7 +269,6 @@ frontend/
 │   │   └── batch.api.ts               # 배치 수동 재실행 요청/상태 조회 (REQ-17)
 │   ├── queries/
 │   │   ├── useAuth.ts
-│   │   ├── useBranch.ts
 │   │   ├── useRecommendations.ts
 │   │   ├── useBrief.ts
 │   │   ├── useTagMutation.ts
@@ -283,8 +281,6 @@ frontend/
 │   │   ├── authStore.ts
 │   │   └── filterStore.ts            # 선택된 지점/기간/상태 필터 등 클라이언트 상태
 │   ├── components/
-│   │   ├── branch/
-│   │   │   └── BranchSetupForm.tsx
 │   │   ├── recommendation/
 │   │   │   ├── RecommendationList.tsx
 │   │   │   ├── RecommendationCard.tsx
@@ -304,13 +300,12 @@ frontend/
 │   │       ├── DataTable.tsx
 │   │       ├── StatTile.tsx
 │   │       ├── StatusBadge.tsx
-│   │       ├── Tabs.tsx              # 상태 필터용 밑줄 탭 (8-wireframe.md §4, 9-style-guide.md §5.7)
+│   │       ├── Tabs.tsx              # 상태 필터용 밑줄 탭 (8-wireframe.md §3, 9-style-guide.md §5.7)
 │   │       ├── TopUtilityBar.tsx     # 사용자명·세션 타이머·보조 링크 (8-wireframe.md §1, 9-style-guide.md §5.8)
 │   │       ├── ManualBatchTrigger.tsx # 데이터 지연 배너의 "수동 재연동" 버튼 (8-wireframe.md §1, UC-18) — 지점장/본부(마케팅)에만 렌더링
 │   │       └── Layout.tsx
 │   ├── pages/
 │   │   ├── LoginPage.tsx
-│   │   ├── BranchSetupPage.tsx
 │   │   ├── DashboardPage.tsx         # 오늘의 접촉 TOP 20 (UC-06)
 │   │   ├── BriefDetailPage.tsx        # UC-07
 │   │   ├── OperationsPage.tsx         # UC-11
@@ -318,7 +313,6 @@ frontend/
 │   │   ├── AdminThresholdPage.tsx     # UC-15
 │   │   └── AdoptionDashboardPage.tsx  # UC-16
 │   ├── types/
-│   │   ├── branch.ts
 │   │   ├── recommendation.ts
 │   │   ├── brief.ts
 │   │   ├── campaign.ts
@@ -330,12 +324,13 @@ frontend/
 └── tsconfig.json
 ```
 
-> 위 트리는 REQ-01~17 및 UC-01~18을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다.
+> 위 트리는 REQ-01~17 및 UC-01~18을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다. UC-01·UC-02(지점 등록·수정 화면)는 `report/db-schema-decisions-review.md` 결정에 따라 전용 화면·API 없이 운영자가 DB에 직접 입력하므로 이 트리에 대응 디렉토리를 두지 않는다.
 
 ---
 
 ## 7. 참고 문서
 
-- `1-domain-definition.md` (v1.3.0): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
-- `2-prd.md` (v1.3.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
+- `1-domain-definition.md` (v1.4.0): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
+- `2-prd.md` (v1.4.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
 - `3-user-scenario.md` (v1.2.0): 시나리오 SC-01~09
+- `report/db-schema-decisions-review.md`: 지점·계정 등록/수정 화면·API 제외, 지오코딩 배치 분리 결정 근거

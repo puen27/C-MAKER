@@ -1,6 +1,6 @@
 # BranchSense ERD (개체-관계 다이어그램)
 
-- **버전**: v1.3.0
+- **버전**: v1.4.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -14,12 +14,15 @@
 | v1.1.1 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 `USER.display_preferences` 컬럼과 관련 설명을 제거. 세션 정책 컬럼(`session_timeout_minutes`, `session_extendable`)은 유지 |
 | v1.2.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-08 반영: `BUSINESS`에 모집단 적재 컬럼(`permit_mgt_no`, `source_crs`, `status_source`, `licensed_on`, `population_as_of`) 추가, 좌표를 WGS84 전제로 명시(VAL-11), `biz_reg_no` NULL 허용. `SIGNAL.scope`, `RECOMMENDATION.freshness_score`/`reason_tier` 추가. CONST-13~15 신설. `is_exploration_slot` 설명에 "1~20위 내 포함, 21~23위 아님"을 명시해 기존 불일치(부록 A)를 해소 |
 | v1.3.0 | 2026-09-08 | 배치 수동 재실행(REQ-17, UC-18) 반영: `BATCH_RUN` 엔티티 신설(`run_type`, `status`, `triggered_by`, `requested_at`/`started_at`/`completed_at`, `failure_reason`), `USER 1:N BATCH_RUN` 관계 추가. CONST-16~18 신설(권한 제한, 중복 실행 방지, 쿨다운) |
+| v1.4.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: (1) `USER.password_hash` → `password`로 변경(평문 저장, 해싱 미적용). (2) `BRANCH_HISTORY` 엔티티 신설 + `BRANCH 1:N BRANCH_HISTORY` 관계 추가 — RULE-BRANCH-01(익일 반영)을 이력 테이블+`effective_from` 트리거로 구현. (3) `BRANCH.lat/lng`를 nullable로 명시하고 별도 지오코딩 배치(10분 주기)가 채움을 주석에 반영, VAL-03 관련 저장 시점 검증 제거. (4) CONST-19 신설(BRANCH 변경 이력 트리거), CONST-20 신설(BATCH_RUN 외 여러 행 집계 제약은 DB CHECK 대상이 아님을 명시). branch_code 형식 제약(6자리 숫자)을 CONST-01 설명에 반영 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.3.0) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.3.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.4.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책, BUSINESS의 모집단 적재 속성, 배치 실행 이력)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+본 문서는 `1-domain-definition.md`(v1.4.0) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.4.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.5.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책, BUSINESS의 모집단 적재 속성, 배치 실행 이력, BRANCH의 변경 이력)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+
+`report/db-schema-decisions-review.md`에서 결정된 대로, USER·BRANCH는 전용 등록/수정 화면·API 없이 운영자가 psql로 직접 INSERT/UPDATE한다(REQ-01 재정의, UC-01·UC-02·API-01 MVP 스코프 제외). 이 결정은 스키마 형태(컬럼·제약)에는 영향을 주지만, ERD 자체는 화면 유무와 무관하게 최종 스키마를 표현한다.
 
 Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 표기하되, 초기 스키마 마이그레이션에서 즉시 생성할지 여부는 `7-execution-plan.md`의 단계별 계획을 따른다.
 
@@ -30,6 +33,7 @@ Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 �
 ```mermaid
 erDiagram
     BRANCH ||--o{ USER : "소속시킨다"
+    BRANCH ||--o{ BRANCH_HISTORY : "변경 이력을 가진다"
     BRANCH ||--o{ EVENT : "발생시킨다"
     BRANCH ||--o{ RECOMMENDATION : "받는다"
     BRANCH ||--o{ OPERATION_FORECAST : "받는다"
@@ -55,16 +59,30 @@ erDiagram
 
     BRANCH {
         SERIAL id PK
-        VARCHAR branch_code "UNIQUE, VAL-01"
+        VARCHAR branch_code "UNIQUE, 숫자 6자리, VAL-01"
         VARCHAR name
         VARCHAR address
-        DECIMAL lat
-        DECIMAL lng
+        DECIMAL lat "nullable, 별도 지오코딩 배치가 채움(RULE-BRANCH-03), VAL-03 폐기"
+        DECIMAL lng "nullable, 별도 지오코딩 배치가 채움(RULE-BRANCH-03), VAL-03 폐기"
         DECIMAL coverage_radius_km "VAL-02"
         VARCHAR primary_industry_tags
         BOOLEAN handles_forex
         INT atm_count
-        TIMESTAMP effective_from "RULE-BRANCH-01"
+        TIMESTAMP effective_from "RULE-BRANCH-01, INSERT/UPDATE 트리거가 자동 설정(CONST-19)"
+    }
+
+    BRANCH_HISTORY {
+        SERIAL id PK
+        INT branch_id FK
+        VARCHAR name
+        VARCHAR address
+        DECIMAL lat
+        DECIMAL lng
+        DECIMAL coverage_radius_km
+        VARCHAR primary_industry_tags
+        BOOLEAN handles_forex
+        INT atm_count
+        TIMESTAMP valid_until "이 스냅샷이 유효했던 종료 시각 = 다음 값의 BRANCH.effective_from"
     }
 
     USER {
@@ -72,7 +90,7 @@ erDiagram
         INT branch_id FK "본부는 NULL, VAL-08"
         VARCHAR name
         VARCHAR role "RM/BRANCH_MANAGER/HQ_MARKETING/HQ_COMPLIANCE, VAL-08"
-        VARCHAR password_hash
+        VARCHAR password "평문 저장, 해싱 미적용(운영자 psql 직접 INSERT)"
         INT session_timeout_minutes "비활동 시 자동 로그아웃(분)"
         BOOLEAN session_extendable "세션 연장 가능 여부"
     }
@@ -238,11 +256,14 @@ erDiagram
 
 | 테이블 | 컬럼 | 타입 | 설명 |
 |---|---|---|---|
-| BRANCH | branch_code | VARCHAR(20) | VAL-01(유일, 영문 대문자+숫자) |
+| BRANCH | branch_code | VARCHAR(6) | VAL-01(유일, 숫자 6자리, `CHECK (branch_code ~ '^[0-9]{6}$')`) |
 | BRANCH | coverage_radius_km | DECIMAL(3,1) | VAL-02(0.5~3.0) |
-| BRANCH | effective_from | TIMESTAMP | RULE-BRANCH-01(변경 익일 배치부터 반영), 저장 시 다음 배치 실행 시각으로 자동 설정 |
+| BRANCH | lat, lng | DECIMAL | nullable. 별도 지오코딩 배치(10분 주기)가 비동기로 채우며, F-1 배치와의 실행 순서를 보장하지 않는다(RULE-BRANCH-03). VAL-03(지오코딩 성공 필수)은 폐기 |
+| BRANCH | effective_from | TIMESTAMP | RULE-BRANCH-01(변경 익일 배치부터 반영). INSERT/UPDATE 트리거가 다음 날 07:30으로 자동 설정한다(CONST-19) |
+| BRANCH_HISTORY | valid_until | TIMESTAMP | 이 스냅샷 값이 유효했던 종료 시각. `BRANCH.effective_from`과 동일 시각으로 트리거가 기록한다 |
 | USER | role | VARCHAR(20) | 'RM', 'BRANCH_MANAGER', 'HQ_MARKETING', 'HQ_COMPLIANCE' 중 하나 (VAL-08). 'HQ_COMPLIANCE'만 `APPROVAL_LOG.stage='COMPLIANCE'` 승인 권한을 가진다(RULE-CAMPAIGN-01) |
 | USER | branch_id | INT (FK → BRANCH.id) | 'HQ_MARKETING'/'HQ_COMPLIANCE' 역할은 NULL 허용, 그 외는 필수 (VAL-08) |
+| USER | password | VARCHAR | **평문 저장, 해싱 미적용**(`report/db-schema-decisions-review.md` 결정). 운영자가 psql로 직접 INSERT하며 별도 가입 화면·API는 없다 |
 | USER | session_timeout_minutes | INT | 비활동 시 자동 로그아웃까지의 분 단위 시간 |
 | USER | session_extendable | BOOLEAN | 세션 연장 UI 노출 여부 |
 | DATA_SOURCE_SNAPSHOT | raw_payload | JSONB | 재현성 검증(TEST-06)을 위한 원본 응답 보존 |
@@ -281,6 +302,7 @@ erDiagram
 | 관계 | 설명 |
 |---|---|
 | BRANCH 1 : N USER | 한 지점은 여러 계정(RM, 지점장)을 가질 수 있다. 본부(마케팅)·본부(준법) 계정은 지점에 속하지 않는다 |
+| BRANCH 1 : N BRANCH_HISTORY | 지점 정보가 UPDATE될 때마다 옛 값이 이력으로 쌓인다(RULE-BRANCH-01) |
 | BRANCH 1 : N EVENT | 신호는 지점 단위로 승격된다 |
 | BRANCH 1 : N RECOMMENDATION | 접촉 명부는 지점별로 생성된다 |
 | BUSINESS 1 : N RECOMMENDATION | 한 사업체가 여러 지점의 접촉 명부에 동시에 오를 수 있다(상권이 겹치는 경우) |
@@ -298,7 +320,7 @@ erDiagram
 
 | 식별자 | 제약 내용 | 근거 |
 |---|---|---|
-| CONST-01 | `BRANCH.branch_code`는 전체 지점 중 유일해야 한다 (UNIQUE) | VAL-01 |
+| CONST-01 | `BRANCH.branch_code`는 전체 지점 중 유일해야 하며 숫자 6자리 형식이어야 한다 (`UNIQUE`, `CHECK (branch_code ~ '^[0-9]{6}$')`) | VAL-01 |
 | CONST-02 | `BRANCH.coverage_radius_km`는 0.5 이상 3.0 이하여야 한다 | VAL-02 |
 | CONST-03 | `USER.role`이 `'HQ_MARKETING'` 또는 `'HQ_COMPLIANCE'`이면 `USER.branch_id`는 NULL이어야 하고, 그 외 역할(`'RM'`, `'BRANCH_MANAGER'`)은 NULL일 수 없다 | VAL-08 |
 | CONST-04 | 동일 `BRANCH.id` 내에서 `EVENT`는 `occurred_on` 하루 기준 `status='ACTIVE'`인 행이 상한(기본 8건)을 넘을 수 없다 | RULE-SENSE-02 |
@@ -316,12 +338,15 @@ erDiagram
 | CONST-16 | `BATCH_RUN.run_type = 'MANUAL'`이면 `triggered_by`는 NULL일 수 없고, 해당 `USER.role`은 `'BRANCH_MANAGER'` 또는 `'HQ_MARKETING'`이어야 한다 | RULE-SENSE-06, VAL-08 |
 | CONST-17 | 임의 시점에 `BATCH_RUN.status = 'RUNNING'`인 행은 최대 1건이다(신규 실행은 이 조건이 없을 때만 생성) | RULE-SENSE-06 |
 | CONST-18 | 동일 `triggered_by`의 `run_type = 'MANUAL'` 행 중 직전 `requested_at`으로부터 30분이 지나지 않았으면 신규 행을 생성할 수 없다 | VAL-12 |
+| CONST-19 | `BRANCH`에 INSERT·UPDATE가 발생하면 트리거가 변경 전 값을 `BRANCH_HISTORY`(`valid_until` = 신규 `effective_from`)로 옮기고, `BRANCH.effective_from`을 다음 날 07:30으로 자동 설정한다 | RULE-BRANCH-01 |
+| CONST-20 | 여러 행 집계가 필요한 제약(CONST-04 지점당 이벤트 상한, CONST-06 탐색슬롯 3건/순위 범위, CONST-09 표본수 30 기준 갱신 제외, CONST-11 캠페인 다단계 승인)은 DB `CHECK` 제약으로 표현하지 않는다. DB CHECK는 단일 행 검증(VAL-01, 02, 04, 05, 06, 08, 09, 10)에 한정하고, 여러 행 집계 제약은 애플리케이션·배치 로직에서만 강제한다(`report/db-schema-decisions-review.md` §6) | — |
 
 ---
 
 ## 5. 참고 문서
 
-- `1-domain-definition.md` (v1.3.0): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
-- `2-prd.md` (v1.3.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
-- `4-project-principle.md` (v1.4.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `1-domain-definition.md` (v1.4.0): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
+- `2-prd.md` (v1.4.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
+- `4-project-principle.md` (v1.5.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
 - `report/CHANGE-REQUEST_v1.md`: BUSINESS·SIGNAL·RECOMMENDATION 컬럼 보강(CHG-08) 근거
+- `report/db-schema-decisions-review.md`: USER 평문 비밀번호, BRANCH/USER 운영자 직접 입력, `BRANCH_HISTORY` 이력 테이블, 지오코딩 배치 분리, DB CHECK 적용 범위 결정 근거
