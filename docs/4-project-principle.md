@@ -1,6 +1,6 @@
 # BranchSense 프로젝트 구조 설계 원칙
 
-- **버전**: v1.1.1
+- **버전**: v1.1.2
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -12,12 +12,13 @@
 | v1.0.0 | 2026-08-26 | 초안 작성 |
 | v1.1.0 | 2026-09-08 | 6장 프론트엔드 디렉토리 구조에 공통 컴포넌트 3개(`TopUtilityBar`, `Tabs`, `ToggleSwitch`) 추가 — `8-wireframe.md`·`9-style-guide.md` v1.1.0에서 정의한 상단 유틸리티 바·상태 필터 탭·표시 개인화 토글에 대응 |
 | v1.1.1 | 2026-09-08 | 문서 정합성 점검 결과 반영: OPS-03에 본부 하위 역할(마케팅/준법) 기반 접근 제어 명시. 하위 문서 인용 버전 정정 |
+| v1.1.2 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 6장 디렉토리 구조에서 `ToggleSwitch.tsx`를 제거 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.1), `2-prd.md`(v1.1.1), `3-user-scenario.md`(v1.0.1)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
+본 문서는 `1-domain-definition.md`(v1.1.2), `2-prd.md`(v1.1.2), `3-user-scenario.md`(v1.0.1)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
 
 전제 조건은 다음과 같으며, 아래 모든 원칙은 이 전제를 최우선으로 따른다.
 
@@ -287,8 +288,7 @@ frontend/
 │   │       ├── StatTile.tsx
 │   │       ├── StatusBadge.tsx
 │   │       ├── Tabs.tsx              # 상태 필터용 밑줄 탭 (8-wireframe.md §4, 9-style-guide.md §5.7)
-│   │       ├── ToggleSwitch.tsx      # 표시 개인화 옵션 전환 (9-style-guide.md §5.8) — 판단 로직 미관여
-│   │       ├── TopUtilityBar.tsx     # 사용자명·세션 타이머·보조 링크 (8-wireframe.md §1, 9-style-guide.md §5.9)
+│   │       ├── TopUtilityBar.tsx     # 사용자명·세션 타이머·보조 링크 (8-wireframe.md §1, 9-style-guide.md §5.8)
 │   │       └── Layout.tsx
 │   ├── pages/
 │   │   ├── LoginPage.tsx
@@ -317,6 +317,6 @@ frontend/
 
 ## 7. 참고 문서
 
-- `1-domain-definition.md` (v1.1.1): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
-- `2-prd.md` (v1.1.1): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
+- `1-domain-definition.md` (v1.1.2): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
+- `2-prd.md` (v1.1.2): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
 - `3-user-scenario.md` (v1.0.1): 시나리오 SC-01~08

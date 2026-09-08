@@ -1,6 +1,6 @@
 # BranchSense ERD (개체-관계 다이어그램)
 
-- **버전**: v1.1.0
+- **버전**: v1.1.1
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -11,12 +11,13 @@
 |---|---|---|
 | v1.0.0 | 2026-08-26 | 초안 작성 |
 | v1.1.0 | 2026-09-08 | 문서 정합성 점검 결과 반영: (1) `1-domain-definition.md` v1.1.0에 추가된 USER 세션 정책·표시 개인화 설정을 `USER` 테이블 컬럼으로 반영(§0 전제 문구 조정 포함). (2) `USER.role`을 `본부(마케팅)`/`본부(준법)` 구분이 가능하도록 확장하고 CONST-03·CONST-11을 갱신 |
+| v1.1.1 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 `USER.display_preferences` 컬럼과 관련 설명을 제거. 세션 정책 컬럼(`session_timeout_minutes`, `session_extendable`)은 유지 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.1) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.1.1) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.1.1) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책·표시 개인화 설정)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+본 문서는 `1-domain-definition.md`(v1.1.2) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.1.2) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.1.2) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책)은 해당 엔티티 테이블의 컬럼으로 반영한다.
 
 Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 표기하되, 초기 스키마 마이그레이션에서 즉시 생성할지 여부는 `7-execution-plan.md`의 단계별 계획을 따른다.
 
@@ -71,7 +72,6 @@ erDiagram
         VARCHAR password_hash
         INT session_timeout_minutes "비활동 시 자동 로그아웃(분)"
         BOOLEAN session_extendable "세션 연장 가능 여부"
-        JSONB display_preferences "표시 개인화 설정(큰글 모드 등), 판단 로직 미참조"
     }
 
     DATA_SOURCE_SNAPSHOT {
@@ -223,7 +223,6 @@ erDiagram
 | USER | branch_id | INT (FK → BRANCH.id) | 'HQ_MARKETING'/'HQ_COMPLIANCE' 역할은 NULL 허용, 그 외는 필수 (VAL-08) |
 | USER | session_timeout_minutes | INT | 비활동 시 자동 로그아웃까지의 분 단위 시간 |
 | USER | session_extendable | BOOLEAN | 세션 연장 UI 노출 여부 |
-| USER | display_preferences | JSONB | 큰글 모드 등 표시 개인화 설정. 스코어링·배제 로직에서 참조하지 않는 순수 표시값 |
 | DATA_SOURCE_SNAPSHOT | raw_payload | JSONB | 재현성 검증(TEST-06)을 위한 원본 응답 보존 |
 | SIGNAL | intensity | DECIMAL(4,3) | 0.000~1.000 정규화값 |
 | SIGNAL | event_id | INT (FK → EVENT.id) | NULL이면 임계치 미달로 승격되지 않은 신호(RULE-SENSE-03) |
@@ -281,6 +280,6 @@ erDiagram
 
 ## 5. 참고 문서
 
-- `1-domain-definition.md` (v1.1.1): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
-- `2-prd.md` (v1.1.1): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
-- `4-project-principle.md` (v1.1.1): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `1-domain-definition.md` (v1.1.2): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
+- `2-prd.md` (v1.1.2): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
+- `4-project-principle.md` (v1.1.2): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
