@@ -1,6 +1,6 @@
 # BranchSense 실행 계획
 
-- **버전**: v1.0.1
+- **버전**: v1.1.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -11,12 +11,13 @@
 |---|---|---|
 | v1.0.0 | 2026-08-26 | 초안 작성 |
 | v1.0.1 | 2026-09-08 | 문서 정합성 점검 결과 반영: 참조 문서 버전 표기를 최신본에 맞게 정정 (내용 변경 없음) |
+| v1.1.0 | 2026-09-08 | `2-prd.md` v1.2.0의 AWS Bedrock 결정 반영: SETUP-04, BATCH-04, Phase 2 상품 우선순위 작업 항목의 LLM/RAG 표현을 AWS Bedrock AI Agent/Knowledge Base로 갱신 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `2-prd.md`(v1.1.2) 8장의 단계별 일정(MVP/Phase 2/Phase 3)을 실행 가능한 작업 항목 단위로 분해한다. 각 작업은 `1-domain-definition.md`의 REQ/UC, `4-project-principle.md`의 디렉토리 구조와 연결되어 있어, 완료 여부를 코드 위치와 인수 기준으로 검증할 수 있다.
+본 문서는 `2-prd.md`(v1.2.0) 8장의 단계별 일정(MVP/Phase 2/Phase 3)을 실행 가능한 작업 항목 단위로 분해한다. 각 작업은 `1-domain-definition.md`의 REQ/UC, `4-project-principle.md`의 디렉토리 구조와 연결되어 있어, 완료 여부를 코드 위치와 인수 기준으로 검증할 수 있다.
 
 MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트 단위 대신 워크스트림 단위로 계획한다(원거리 일정은 세부 스프린트보다 범위 고정이 더 중요하기 때문).
 
@@ -46,7 +47,7 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 | SETUP-01 | 저장소 구조 생성, `database/schema.sql` 초기 스키마(BRANCH·USER·DATA_SOURCE_SNAPSHOT) | REQ-01 | `4-project-principle.md` 6장 트리와 일치, psql로 스키마 적용 성공 |
 | SETUP-02 | FastAPI 앱 골격 + 인증 미들웨어 | REQ-01 | 로그인 후 JWT 발급, 보호된 엔드포인트 401 처리 확인 |
 | SETUP-03 | React 앱 골격 + 라우터 + 디자인 토큰 초기화 | — | `9-style-guide.md` 2~4장 토큰이 `:root`에 반영됨 |
-| SETUP-04 | LLM 추론 환경 확정에 따른 클라이언트 설정 | `2-prd.md` 10장 미해결 이슈 2 | 환경(외부/사내) 결정값이 `common/config.py`에 반영됨 |
+| SETUP-04 | AWS Bedrock 클라이언트 설정(IAM 자격증명, Agent ID, Knowledge Base ID) | `2-prd.md` v1.2.0 5장/10장 미해결 이슈 2 | Bedrock 연동 정보가 `common/config.py`에 반영되고 테스트 호출(Agent invoke) 성공 |
 
 ### 스프린트 1~2 (2주) — 지점 등록과 사업자 검증
 
@@ -64,7 +65,7 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 | DATA-02~07 | 인허가·지하철·ECOS·오피넷·기상청·재난문자 커넥터 6종 | REQ-03 | 소스별 스냅샷 적재 확인, 장애 주입 시 RULE-SENSE-04 폴백 동작 |
 | BATCH-02 | 신호 정규화 + 이벤트 승격(sensing) | REQ-03 | 도메인 정의서 5.1절 판정 순서 단위 테스트(TEST-01) 통과 |
 | BATCH-03 | 배제·스코어링·탐색 슬롯(targeting) | REQ-05 | RULE-TARGET-01~04 단위 테스트(TEST-02) 통과 |
-| BATCH-04 | LLM Tool Calling 브리프 생성 + citation guard | REQ-06 | RULE-BRIEF-01~03 회귀 테스트셋(TEST-03) 통과 |
+| BATCH-04 | AWS Bedrock AI Agent 브리프 생성 + citation guard | REQ-06 | RULE-BRIEF-01~03 회귀 테스트셋(TEST-03) 통과 |
 | API-02 | 추천/브리프 조회 API | REQ-05, REQ-06, UC-06, UC-07 | UC-06, UC-07 인수 기준 통과 |
 | FE-02 | 오늘의 접촉 TOP 20 대시보드 | UC-06 | 07:35 접속 시 목록·사유 노출 확인(SC-02) |
 | FE-03 | 상담 브리프 상세 화면 | UC-07 | 출처 태그 전 항목 노출 확인 |
@@ -102,7 +103,7 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 | DATA | 소진공 상가(상권)정보 커넥터, 분기 갱신 감지 로직 | REQ-04, UC-05 | RULE-SENSE-05(갱신일에만 실행) 검증 |
 | BATCH | 채택률 집계 + 가중치 갱신 배치(learning) | REQ-09, UC-10 | RULE-LEARN-01~05, 도메인 정의서 5.2절 계산 단위 테스트 통과 |
 | BATCH | 운영 수요 예측(현금/ATM/외화) 로직 | REQ-10 | 예측 구간 산출, 근거 신호 태깅 |
-| BATCH | 상품 우선순위 + RAG 인용 | REQ-11 | 인용 없는 항목 비노출 검증 |
+| BATCH | 상품 우선순위 + AWS Bedrock Knowledge Base 인용 | REQ-11 | 인용 없는 항목 비노출 검증 |
 | API/FE | 채택률 대시보드, 운영 브리핑 화면 | UC-11, UC-16 | SC-05, SC-06 흐름 통과 |
 | INFRA | 탐색 슬롯 성과 분리 집계 파이프라인 | RULE-LEARN-04 | 탐색 슬롯 태깅 결과가 별도 지표로 조회 가능 |
 
@@ -140,6 +141,6 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 ## 6. 참고 문서
 
 - `1-domain-definition.md` (v1.1.2): REQ, UC, RULE, 핵심 계산값 정의
-- `2-prd.md` (v1.1.2): 3장 범위 우선순위, 8장 일정, 9장 리스크, 10장 미해결 이슈
+- `2-prd.md` (v1.2.0): 3장 범위 우선순위, 5장 기술 스택(AWS Bedrock), 8장 일정, 9장 리스크, 10장 미해결 이슈
 - `3-user-scenario.md` (v1.0.1): SC-01~08 (완료 기준의 시나리오 근거)
-- `4-project-principle.md` (v1.1.2): 6장 디렉토리 구조 (작업 항목의 코드 위치 근거)
+- `4-project-principle.md` (v1.2.0): 6장 디렉토리 구조 (작업 항목의 코드 위치 근거)

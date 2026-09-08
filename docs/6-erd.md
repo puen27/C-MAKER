@@ -17,7 +17,7 @@
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.2) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.1.2) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.1.2) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+본 문서는 `1-domain-definition.md`(v1.1.2) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.2.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.2.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책)은 해당 엔티티 테이블의 컬럼으로 반영한다.
 
 Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 표기하되, 초기 스키마 마이그레이션에서 즉시 생성할지 여부는 `7-execution-plan.md`의 단계별 계획을 따른다.
 
@@ -281,5 +281,5 @@ erDiagram
 ## 5. 참고 문서
 
 - `1-domain-definition.md` (v1.1.2): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
-- `2-prd.md` (v1.1.2): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
-- `4-project-principle.md` (v1.1.2): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `2-prd.md` (v1.2.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
+- `4-project-principle.md` (v1.2.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션

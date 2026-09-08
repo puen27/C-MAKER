@@ -1,6 +1,6 @@
 # BranchSense 프로젝트 구조 설계 원칙
 
-- **버전**: v1.1.2
+- **버전**: v1.2.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -13,17 +13,18 @@
 | v1.1.0 | 2026-09-08 | 6장 프론트엔드 디렉토리 구조에 공통 컴포넌트 3개(`TopUtilityBar`, `Tabs`, `ToggleSwitch`) 추가 — `8-wireframe.md`·`9-style-guide.md` v1.1.0에서 정의한 상단 유틸리티 바·상태 필터 탭·표시 개인화 토글에 대응 |
 | v1.1.1 | 2026-09-08 | 문서 정합성 점검 결과 반영: OPS-03에 본부 하위 역할(마케팅/준법) 기반 접근 제어 명시. 하위 문서 인용 버전 정정 |
 | v1.1.2 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 6장 디렉토리 구조에서 `ToggleSwitch.tsx`를 제거 |
+| v1.2.0 | 2026-09-08 | `2-prd.md` v1.2.0의 AWS Bedrock 결정 반영: "판단은 코드, 문장은 LLM" 전제를 Bedrock AI Agent 기준으로 갱신, `llm_client.py`를 `bedrock_agent_client.py`로 개명, OPS-01(환경변수 관리 → IAM 자격증명)·OPS-06(LLM 호출 격리 → 생성형 AI 호출 격리) 갱신 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.1.2), `2-prd.md`(v1.1.2), `3-user-scenario.md`(v1.0.1)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
+본 문서는 `1-domain-definition.md`(v1.1.2), `2-prd.md`(v1.2.0), `3-user-scenario.md`(v1.0.1)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
 
 전제 조건은 다음과 같으며, 아래 모든 원칙은 이 전제를 최우선으로 따른다.
 
 - **배치와 API는 별도 실행 단위**다. 배치(신호 감지·스코어링·브리프 생성·학습)는 매일/매주/분기 주기로 실행되는 파이프라인이고, API 서버는 대시보드·태깅·CRM 파일 요청에 상시 응답한다. 둘은 같은 저장소·DB 스키마를 공유하되 프로세스는 분리한다.
-- **판단은 코드, 문장은 LLM** (`2-prd.md` 5장 아키텍처 결정). 배치의 스코어링·배제·임계치 판정 단계에는 LLM 호출을 두지 않는다. LLM은 브리프·캠페인 문구 생성 단계에서만 Tool Calling으로 호출한다.
+- **판단은 코드, 문장은 AWS Bedrock AI Agent** (`2-prd.md` v1.2.0 5장 아키텍처 결정). 배치의 스코어링·배제·임계치 판정 단계에는 어떤 생성형 AI 호출도 두지 않는다. Bedrock AI Agent는 브리프·캠페인 문구 생성 단계에서만, Action Group(도구)과 Knowledge Base(RAG)를 통해서만 호출한다.
 - **백엔드**: Python 3.12 + FastAPI + psycopg(ORM 미사용, 직접 SQL). **프론트엔드**: React 19 + TypeScript + Zustand(클라이언트 상태) + TanStack Query(서버 상태). **DB**: PostgreSQL 17.
 - 과도한 추상화·설계는 금지한다. 배치 오케스트레이션 프레임워크(Airflow, Prefect 등), 이벤트 버스, 마이크로서비스 분리는 이 프로젝트 규모(단일 배치 SLA, 지점 수백 단위)에 맞지 않으므로 도입하지 않는다.
 
@@ -61,14 +62,14 @@ connectors (소스별 원본 수집, DATA_SOURCE_SNAPSHOT 적재)
   → normalizers (SIGNAL로 정규화, 기준일 부여)
     → sensing (임계치 판정 → EVENT 승격, RULE-SENSE-01~05)
       → targeting (배제 → 스코어링 → TOP 20 + 탐색 슬롯, RULE-TARGET-01~04)
-        → briefing (LLM Tool Calling으로 BRIEF 생성, RULE-BRIEF-01~03)
+        → briefing (AWS Bedrock AI Agent 호출로 BRIEF 생성, RULE-BRIEF-01~03)
           → export (CRM 파일 생성, DB 저장)
 ```
 
 - `connectors`는 소스 API 호출과 원본 응답의 스냅샷 적재만 담당한다. 정규화 로직을 포함하지 않는다.
 - `sensing`은 도메인 정의서 5.1절(이벤트 승격 판정) 순서를 그대로 구현하는 유일한 위치다.
-- `targeting`은 RULE-TARGET-02 스코어링 공식과 RULE-TARGET-03 탐색 슬롯 배정을 구현한다. LLM을 호출하지 않는다.
-- `briefing`은 확정된 RECOMMENDATION을 입력받아 문장을 생성하며, 도구(Tool Calling)로 조회한 값 외의 사실을 인용하면 안 된다(RULE-BRIEF-02). 이 검증(citation guard)은 briefing 내부에서 자체 완결되어야 한다.
+- `targeting`은 RULE-TARGET-02 스코어링 공식과 RULE-TARGET-03 탐색 슬롯 배정을 구현한다. Bedrock을 호출하지 않는다.
+- `briefing`은 확정된 RECOMMENDATION을 입력받아 문장을 생성하며, Bedrock AI Agent의 Action Group(도구)·Knowledge Base(RAG)로 조회한 값 외의 사실을 인용하면 안 된다(RULE-BRIEF-02). 이 검증(citation guard)은 briefing 내부에서 자체 완결되어야 한다.
 - 학습(`learning`)과 캠페인(`campaign`)은 각각 주간·이벤트 트리거 배치로 별도 진입점을 가지며, 위 일간 파이프라인과 프로세스를 공유하지 않는다.
 
 ### API 서버 레이어 (요청 처리 흐름)
@@ -150,12 +151,12 @@ components / pages (UI 렌더링)
 
 | 식별자 | 원칙 |
 |---|---|
-| OPS-01 | 환경변수 관리 | DB 접속 정보, JWT 시크릿, 각 공공데이터 API 인증키, LLM API 키는 `.env`로 관리하고 코드에 하드코딩하지 않는다. `.env.example`로 필요한 키 목록만 공유한다. |
+| OPS-01 | 환경변수 관리 | DB 접속 정보, JWT 시크릿, 각 공공데이터 API 인증키는 `.env`로 관리하고 코드에 하드코딩하지 않는다. AWS Bedrock 접근은 API 키가 아니라 IAM 역할/자격증명(리전, Agent ID, Knowledge Base ID 포함)으로 관리하며, 로컬 개발 시에도 장기 액세스 키를 코드에 하드코딩하지 않는다. `.env.example`로 필요한 키 목록만 공유한다. |
 | OPS-02 | DB 커넥션 풀 | psycopg의 커넥션 풀을 배치 프로세스와 API 프로세스 각각 시작 시 1회 생성해 재사용한다. |
 | OPS-03 | 인증/인가 | 모든 인증 필요 API는 공통 인증 미들웨어에서 JWT를 검증한다. 역할·소속 지점 기반 접근 제어(RM은 본인 소속 지점 데이터만, VAL-08)는 서비스 레이어에서 수행한다. 본부 역할은 마케팅/준법 하위 역할로 구분되며(VAL-08), 캠페인 준법 승인(`campaign.service.py`)은 본부(준법) 역할만 호출 가능하도록 이 레이어에서 검증한다(RULE-CAMPAIGN-01). |
 | OPS-04 | 배치 실패 격리 | 소스 커넥터 하나의 실패가 전체 배치를 중단시키지 않는다. 실패한 소스만 RULE-SENSE-04(전일 스냅샷 폴백)를 적용하고 나머지는 정상 진행한다. |
 | OPS-05 | 스냅샷 보존 | `DATA_SOURCE_SNAPSHOT`은 날짜 파티션으로 적재하며, 감사 추적(REQ-15) 및 재현성 검증(TEST-06)을 위해 최소 1년 보존한다. |
-| OPS-06 | LLM 호출 격리 | LLM Tool Calling은 `briefing`/`campaign` 모듈에서만 발생하며, 어떤 도구도 개인 고객정보·거래정보를 반환하지 않는다(RULE-SEC-01). |
+| OPS-06 | 생성형 AI 호출 격리 | AWS Bedrock AI Agent 호출은 `briefing`/`campaign` 모듈에서만 발생하며, Agent에 등록된 어떤 Action Group·Knowledge Base도 개인 고객정보·거래정보를 반환하지 않는다(RULE-SEC-01). |
 | OPS-07 | CORS | 프론트엔드 배포 origin만 허용한다. 와일드카드(`*`) 허용은 프로덕션에서 사용하지 않는다. |
 | OPS-08 | 로깅 | 배치는 단계별 처리 건수·소요시간·실패 소스를 구조화 로그로 남긴다. API는 요청 단위 기본 로그(메서드, 경로, 상태 코드, 응답 시간)만 남긴다. |
 | OPS-09 | 마이그레이션 | ORM 없이 순수 SQL로 스키마를 관리한다. 저장소 루트의 `database/schema.sql` 단일 파일에 전체 스키마를 정의하고 psql로 직접 실행한다. |
@@ -187,8 +188,8 @@ backend/
 │   │   ├── exclusion.py
 │   │   ├── scorer.py
 │   │   └── exploration.py
-│   ├── briefing/                   # LLM Tool Calling 브리프 생성 (RULE-BRIEF)
-│   │   ├── llm_client.py
+│   ├── briefing/                   # AWS Bedrock AI Agent 브리프 생성 (RULE-BRIEF)
+│   │   ├── bedrock_agent_client.py  # Bedrock Agent 호출 래퍼 (Action Group·Knowledge Base 연동)
 │   │   ├── brief_generator.py
 │   │   └── citation_guard.py        # 근거 없는 문장 차단 (RULE-BRIEF-02)
 │   ├── learning/                   # 채택률 집계 및 가중치 갱신 (RULE-LEARN)
@@ -318,5 +319,5 @@ frontend/
 ## 7. 참고 문서
 
 - `1-domain-definition.md` (v1.1.2): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
-- `2-prd.md` (v1.1.2): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
+- `2-prd.md` (v1.2.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
 - `3-user-scenario.md` (v1.0.1): 시나리오 SC-01~08
