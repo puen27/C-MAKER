@@ -1,6 +1,6 @@
 # BranchSense 프로젝트 구조 설계 원칙
 
-- **버전**: v1.3.0
+- **버전**: v1.4.0
 - **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
@@ -15,12 +15,13 @@
 | v1.1.2 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 6장 디렉토리 구조에서 `ToggleSwitch.tsx`를 제거 |
 | v1.2.0 | 2026-09-08 | `2-prd.md` v1.2.0의 AWS Bedrock 결정 반영: "판단은 코드, 문장은 LLM" 전제를 Bedrock AI Agent 기준으로 갱신, `llm_client.py`를 `bedrock_agent_client.py`로 개명, OPS-01(환경변수 관리 → IAM 자격증명)·OPS-06(LLM 호출 격리 → 생성형 AI 호출 격리) 갱신 |
 | v1.3.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-07 반영: `localdata_connector`를 `permit_connector`로 개명하고 전수/변동분 함수 분리(NAME-B03), 6장 백엔드 디렉토리에 `population/`(모집단 적재)·`run_monthly.py`·`common/geo.py`·`common/schemas/business.py`·`targeting/reason_tier.py` 추가, `population`이 일간 SLA 파이프라인과 분리된 별도 진입점임을 §2에 명시 |
+| v1.4.0 | 2026-09-08 | 배치 수동 재실행(REQ-17, UC-18) 반영: API 서버 레이어에 `batch.router.py`/`batch.service.py`/`batch_run.repository.py` 추가하고 수동 재실행 처리 방식(별도 프로세스 기동, 요청 즉시 응답) 명시; 프론트엔드에 `batch.api.ts`·`useTriggerBatch`·`useBatchRunStatus`·`ManualBatchTrigger.tsx`·`batchRun.ts` 추가 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.2.0), `2-prd.md`(v1.2.0), `3-user-scenario.md`(v1.1.0)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
+본 문서는 `1-domain-definition.md`(v1.3.0), `2-prd.md`(v1.3.0), `3-user-scenario.md`(v1.2.0)에 정의된 요구사항을 실제 코드로 구현할 때 따라야 할 프로젝트 구조·코드 설계 원칙을 정의한다.
 
 전제 조건은 다음과 같으며, 아래 모든 원칙은 이 전제를 최우선으로 따른다.
 
@@ -84,9 +85,10 @@ routers (라우팅 정의)
 ```
 
 - 라우터는 URL과 서비스 호출을 연결하는 역할만 한다.
-- 서비스는 도메인 규칙(RULE-BRANCH, RULE-CAMPAIGN 등 API에서 트리거되는 규칙)을 구현하는 유일한 위치다.
+- 서비스는 도메인 규칙(RULE-BRANCH, RULE-CAMPAIGN, RULE-SENSE-06 등 API에서 트리거되는 규칙)을 구현하는 유일한 위치다.
 - 리포지토리는 SQL 실행과 결과 매핑만 담당한다.
 - 인증/권한 검증(JWT 검증, 역할·소속 지점 기반 접근 제어)은 미들웨어에서 공통 처리한다.
+- **배치 수동 재실행(REQ-17)**: `batch.service.py`가 BATCH_RUN을 조회해 RULE-SENSE-06(중복 실행 방지)·VAL-12(쿨다운)를 검증한 뒤, `run_daily.py`를 별도 프로세스로 기동하고 즉시 응답한다(API 요청을 배치 완료까지 블로킹하지 않음). 배치 오케스트레이션 프레임워크는 도입하지 않으므로(PRIN-02) `subprocess` 기동 + BATCH_RUN 상태 폴링 이상의 구조를 만들지 않는다.
 
 ### 프론트엔드 레이어 (데이터 흐름)
 
@@ -98,7 +100,7 @@ components / pages (UI 렌더링)
 ```
 
 - **Zustand**: 서버에 저장되지 않는 순수 클라이언트 상태만 다룬다 (로그인 토큰, 선택된 상태 필터, 사이드바 열림 여부 등).
-- **TanStack Query**: 서버로부터 가져오거나 반영해야 하는 데이터(추천 목록, 브리프, 태깅, 임계치, 캠페인, 채택률 통계)를 다룬다.
+- **TanStack Query**: 서버로부터 가져오거나 반영해야 하는 데이터(추천 목록, 브리프, 태깅, 임계치, 캠페인, 채택률 통계, 배치 실행 상태)를 다룬다. 배치 수동 재실행(REQ-17) 트리거 후에는 `useBatchRunStatus` 훅이 `BATCH_RUN` 상태를 짧은 간격으로 폴링해 "실행 중 → 완료" 전환을 감지하고, 완료 시 추천/브리프 쿼리를 무효화(invalidate)해 화면을 갱신한다.
 - 컴포넌트는 API 클라이언트를 직접 호출하지 않고 반드시 TanStack Query 훅을 통해 데이터에 접근한다.
 
 ---
@@ -143,7 +145,7 @@ components / pages (UI 렌더링)
 | TEST-02 | 우선순위 2: 배제 우선순위(RULE-TARGET-01), 스코어링 공식(RULE-TARGET-02), 채택률·가중치 계산(도메인 정의서 5.2절)은 경계값(표본 30건 미만, 클리핑 상하한)을 포함한 단위 테스트를 작성한다. |
 | TEST-03 | 우선순위 3: 브리프 생성의 그라운딩 검증(RULE-BRIEF-02, 근거 없는 문장 차단)은 회귀 테스트셋으로 주기 검증한다(`2-prd.md` 6장). |
 | TEST-04 | 그 외 단순 CRUD 엔드포인트(지점 등록·수정, 태깅 저장, 임계치 저장 등)는 통합 테스트 또는 수동 확인(Postman/curl)으로 검증한다. |
-| TEST-05 | 프론트엔드는 별도 단위 테스트를 강제하지 않는다. `3-user-scenario.md`의 SC-01~08 흐름 기준 수동 확인으로 검증한다. |
+| TEST-05 | 프론트엔드는 별도 단위 테스트를 강제하지 않는다. `3-user-scenario.md`의 SC-01~09 흐름 기준 수동 확인으로 검증한다. |
 | TEST-06 | 배치 전체는 재현성 검증을 위해, 동일한 스냅샷·임계치·가중치 버전을 입력했을 때 동일한 RECOMMENDATION·BRIEF가 산출되는지 분기 단위로 검증한다(PRIN-08). |
 | TEST-07 | 백엔드는 ruff(린트) + mypy(타입 검사)를 최소 수준으로 적용한다. 프론트엔드는 ESLint + Prettier를 사용한다. |
 
@@ -214,17 +216,20 @@ backend/
 │   │   ├── tags.router.py
 │   │   ├── thresholds.router.py
 │   │   ├── campaigns.router.py
-│   │   └── adoption.router.py
+│   │   ├── adoption.router.py
+│   │   └── batch.router.py          # 배치 수동 재실행 (REQ-17, UC-18)
 │   ├── services/
 │   │   ├── branch.service.py
 │   │   ├── tag.service.py           # 태깅 저장 (RULE-LEARN-01/02)
 │   │   ├── threshold.service.py     # 임계치·가중치 관리자 설정 (REQ-14)
-│   │   └── campaign.service.py      # 승인 흐름 (RULE-CAMPAIGN-01)
+│   │   ├── campaign.service.py      # 승인 흐름 (RULE-CAMPAIGN-01)
+│   │   └── batch.service.py         # 수동 재실행 권한·쿨다운·중복실행 검증 (RULE-SENSE-06, VAL-12)
 │   ├── repositories/
 │   │   ├── branch.repository.py
 │   │   ├── recommendation.repository.py
 │   │   ├── tag.repository.py
-│   │   └── campaign.repository.py
+│   │   ├── campaign.repository.py
+│   │   └── batch_run.repository.py  # BATCH_RUN CRUD
 │   ├── middlewares/
 │   │   ├── auth.middleware.py
 │   │   └── error.middleware.py
@@ -261,7 +266,8 @@ frontend/
 │   │   ├── tag.api.ts
 │   │   ├── threshold.api.ts
 │   │   ├── campaign.api.ts
-│   │   └── adoption.api.ts
+│   │   ├── adoption.api.ts
+│   │   └── batch.api.ts               # 배치 수동 재실행 요청/상태 조회 (REQ-17)
 │   ├── queries/
 │   │   ├── useAuth.ts
 │   │   ├── useBranch.ts
@@ -270,7 +276,9 @@ frontend/
 │   │   ├── useTagMutation.ts
 │   │   ├── useThresholds.ts
 │   │   ├── useCampaigns.ts
-│   │   └── useAdoptionStats.ts
+│   │   ├── useAdoptionStats.ts
+│   │   ├── useTriggerBatch.ts         # 수동 재실행 요청 mutation (UC-18)
+│   │   └── useBatchRunStatus.ts       # BATCH_RUN 상태 폴링, 완료 시 관련 쿼리 무효화
 │   ├── stores/
 │   │   ├── authStore.ts
 │   │   └── filterStore.ts            # 선택된 지점/기간/상태 필터 등 클라이언트 상태
@@ -298,6 +306,7 @@ frontend/
 │   │       ├── StatusBadge.tsx
 │   │       ├── Tabs.tsx              # 상태 필터용 밑줄 탭 (8-wireframe.md §4, 9-style-guide.md §5.7)
 │   │       ├── TopUtilityBar.tsx     # 사용자명·세션 타이머·보조 링크 (8-wireframe.md §1, 9-style-guide.md §5.8)
+│   │       ├── ManualBatchTrigger.tsx # 데이터 지연 배너의 "수동 재연동" 버튼 (8-wireframe.md §1, UC-18) — 지점장/본부(마케팅)에만 렌더링
 │   │       └── Layout.tsx
 │   ├── pages/
 │   │   ├── LoginPage.tsx
@@ -313,6 +322,7 @@ frontend/
 │   │   ├── recommendation.ts
 │   │   ├── brief.ts
 │   │   ├── campaign.ts
+│   │   ├── batchRun.ts                # BatchRun 타입 (REQ-17)
 │   │   └── adoption.ts
 │   ├── router.tsx
 │   └── main.tsx
@@ -320,12 +330,12 @@ frontend/
 └── tsconfig.json
 ```
 
-> 위 트리는 REQ-01~16 및 UC-01~17을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다.
+> 위 트리는 REQ-01~17 및 UC-01~18을 구현하는 데 필요한 최소 단위로 구성했다. 이 범위를 넘어서는 디렉토리(예: `domain/`, `infrastructure/` 등 계층형 아키텍처 폴더, 배치 오케스트레이션 도구용 폴더)는 PRIN-01·PRIN-02에 따라 도입하지 않는다.
 
 ---
 
 ## 7. 참고 문서
 
-- `1-domain-definition.md` (v1.2.0): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
-- `2-prd.md` (v1.2.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
-- `3-user-scenario.md` (v1.1.0): 시나리오 SC-01~08
+- `1-domain-definition.md` (v1.3.0): REQ, VAL, 엔티티, RULE, 핵심 계산값 정의, UC
+- `2-prd.md` (v1.3.0): 기술 스택(5장), 비기능 요건(6장), 범위 우선순위(3장)
+- `3-user-scenario.md` (v1.2.0): 시나리오 SC-01~09
