@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-이 파일은 BranchSense(가칭) 프로젝트에서 Claude Code가 코드를 작성/수정할 때 반드시 따라야 하는 정책을 정의한다. 근거는 [`docs/branchsense-prd.md`](docs/branchsense-prd.md) (PRD v0.1, 2026-08-26)이며, PRD와 이 문서가 상충하면 **PRD가 우선**하고 이 문서를 갱신한다.
+이 파일은 BranchSense(가칭) 프로젝트에서 Claude Code가 코드를 작성/수정할 때 반드시 따라야 하는 정책을 정의한다. 근거는 [`docs/2-prd.md`](docs/2-prd.md) (PRD v1.1.0, 2026-08-26)이며, PRD와 이 문서가 상충하면 **PRD가 우선**하고 이 문서를 갱신한다. (이전 버전 `docs/branchsense-prd.md`(v0.1)는 `docs/1-domain-definition.md`·`docs/2-prd.md` 체계로 재구성되며 폐기·삭제되었다.)
 
 ## 프로젝트 한 줄 요약
 
