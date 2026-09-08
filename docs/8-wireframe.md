@@ -277,7 +277,7 @@
 ```
 
 - 광고성 정보 표기·수신거부 문구 체크가 모두 되어 있지 않으면 '지점장 검토 완료' 버튼이 비활성화된다(VAL-07).
-- 화면의 '준법대기'/'준법승인 대기중' 라벨은 `CAMPAIGN.status = MANAGER_REVIEW`(`1-domain-definition.md` v1.1.1, `6-erd.md` v1.1.0)에 대응한다.
+- 화면의 '준법대기'/'준법승인 대기중' 라벨은 `CAMPAIGN.status = MANAGER_REVIEW`(`1-domain-definition.md` v1.1.2, `6-erd.md` v1.1.1)에 대응한다.
 - 준법 승인 버튼은 `USER.role = HQ_COMPLIANCE`(본부(준법)) 계정에게만 노출되며, 승인 시 상태가 `APPROVED`를 거쳐 즉시 '이관완료'(`HANDED_OFF`)로 바뀐다(RULE-CAMPAIGN-01). `HQ_MARKETING`(본부(마케팅)) 계정에는 이 버튼이 노출되지 않는다.
 
 ---
