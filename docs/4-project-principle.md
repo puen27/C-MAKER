@@ -10,6 +10,7 @@
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | v1.0.0 | 2026-08-26 | 초안 작성 |
+| v1.1.0 | 2026-09-08 | 6장 프론트엔드 디렉토리 구조에 공통 컴포넌트 3개(`TopUtilityBar`, `Tabs`, `ToggleSwitch`) 추가 — `8-wireframe.md`·`9-style-guide.md` v1.1.0에서 정의한 상단 유틸리티 바·상태 필터 탭·표시 개인화 토글에 대응 |
 
 ---
 
@@ -284,6 +285,9 @@ frontend/
 │   │       ├── DataTable.tsx
 │   │       ├── StatTile.tsx
 │   │       ├── StatusBadge.tsx
+│   │       ├── Tabs.tsx              # 상태 필터용 밑줄 탭 (8-wireframe.md §4, 9-style-guide.md §5.7)
+│   │       ├── ToggleSwitch.tsx      # 표시 개인화 옵션 전환 (9-style-guide.md §5.8) — 판단 로직 미관여
+│   │       ├── TopUtilityBar.tsx     # 사용자명·세션 타이머·보조 링크 (8-wireframe.md §1, 9-style-guide.md §5.9)
 │   │       └── Layout.tsx
 │   ├── pages/
 │   │   ├── LoginPage.tsx
