@@ -1,7 +1,7 @@
 # BranchSense ERD (개체-관계 다이어그램)
 
-- **버전**: v1.0.0
-- **작성일**: 2026-08-26
+- **버전**: v1.4.0
+- **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
 
 ---
 
@@ -10,12 +10,19 @@
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | v1.0.0 | 2026-08-26 | 초안 작성 |
+| v1.1.0 | 2026-09-08 | 문서 정합성 점검 결과 반영: (1) `1-domain-definition.md` v1.1.0에 추가된 USER 세션 정책·표시 개인화 설정을 `USER` 테이블 컬럼으로 반영(§0 전제 문구 조정 포함). (2) `USER.role`을 `본부(마케팅)`/`본부(준법)` 구분이 가능하도록 확장하고 CONST-03·CONST-11을 갱신 |
+| v1.1.1 | 2026-09-08 | 큰글 모드(표시 개인화) 기능 제외 결정에 따라 `USER.display_preferences` 컬럼과 관련 설명을 제거. 세션 정책 컬럼(`session_timeout_minutes`, `session_extendable`)은 유지 |
+| v1.2.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-08 반영: `BUSINESS`에 모집단 적재 컬럼(`permit_mgt_no`, `source_crs`, `status_source`, `licensed_on`, `population_as_of`) 추가, 좌표를 WGS84 전제로 명시(VAL-11), `biz_reg_no` NULL 허용. `SIGNAL.scope`, `RECOMMENDATION.freshness_score`/`reason_tier` 추가. CONST-13~15 신설. `is_exploration_slot` 설명에 "1~20위 내 포함, 21~23위 아님"을 명시해 기존 불일치(부록 A)를 해소 |
+| v1.3.0 | 2026-09-08 | 배치 수동 재실행(REQ-17, UC-18) 반영: `BATCH_RUN` 엔티티 신설(`run_type`, `status`, `triggered_by`, `requested_at`/`started_at`/`completed_at`, `failure_reason`), `USER 1:N BATCH_RUN` 관계 추가. CONST-16~18 신설(권한 제한, 중복 실행 방지, 쿨다운) |
+| v1.4.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: (1) `USER.password_hash` → `password`로 변경(평문 저장, 해싱 미적용). (2) `BRANCH_HISTORY` 엔티티 신설 + `BRANCH 1:N BRANCH_HISTORY` 관계 추가 — RULE-BRANCH-01(익일 반영)을 이력 테이블+`effective_from` 트리거로 구현. (3) `BRANCH.lat/lng`를 nullable로 명시하고 별도 지오코딩 배치(10분 주기)가 채움을 주석에 반영, VAL-03 관련 저장 시점 검증 제거. (4) CONST-19 신설(BRANCH 변경 이력 트리거), CONST-20 신설(BATCH_RUN 외 여러 행 집계 제약은 DB CHECK 대상이 아님을 명시). branch_code 형식 제약(6자리 숫자)을 CONST-01 설명에 반영 |
 
 ---
 
 ## 0. 문서 목적 및 전제
 
-본 문서는 `1-domain-definition.md`(v1.0.0) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.0.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.0.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 도메인 정의서에 없는 테이블(세션, 알림 등)은 추가하지 않는다.
+본 문서는 `1-domain-definition.md`(v1.4.0) 3장에 정의된 엔티티와 도메인 규칙을, `2-prd.md`(v1.4.0) 5장의 PostgreSQL 17 · ORM 미사용(직접 SQL) 제약과 `4-project-principle.md`(v1.5.0) 6장의 `database/schema.sql` 단일 파일 스키마 컨벤션에 맞춰 ERD로 표현한다. 세션 토큰·알림 이력처럼 도메인 정의서에 없는 개념의 전용 테이블은 추가하지 않되, 도메인 정의서가 특정 엔티티의 속성으로 명시한 값(예: USER의 세션 정책, BUSINESS의 모집단 적재 속성, 배치 실행 이력, BRANCH의 변경 이력)은 해당 엔티티 테이블의 컬럼으로 반영한다.
+
+`report/db-schema-decisions-review.md`에서 결정된 대로, USER·BRANCH는 전용 등록/수정 화면·API 없이 운영자가 psql로 직접 INSERT/UPDATE한다(REQ-01 재정의, UC-01·UC-02·API-01 MVP 스코프 제외). 이 결정은 스키마 형태(컬럼·제약)에는 영향을 주지만, ERD 자체는 화면 유무와 무관하게 최종 스키마를 표현한다.
 
 Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 표기하되, 초기 스키마 마이그레이션에서 즉시 생성할지 여부는 `7-execution-plan.md`의 단계별 계획을 따른다.
 
@@ -26,6 +33,7 @@ Phase 2·3 전용 엔티티(`OPERATION_FORECAST`, `CAMPAIGN` 계열)도 함께 �
 ```mermaid
 erDiagram
     BRANCH ||--o{ USER : "소속시킨다"
+    BRANCH ||--o{ BRANCH_HISTORY : "변경 이력을 가진다"
     BRANCH ||--o{ EVENT : "발생시킨다"
     BRANCH ||--o{ RECOMMENDATION : "받는다"
     BRANCH ||--o{ OPERATION_FORECAST : "받는다"
@@ -42,6 +50,7 @@ erDiagram
     USER ||--o{ TAG_FEEDBACK : "태깅한다"
     USER ||--o{ THRESHOLD_CONFIG : "수정한다"
     USER ||--o{ APPROVAL_LOG : "승인한다"
+    USER ||--o{ BATCH_RUN : "수동 재실행을 요청한다"
 
     CAMPAIGN ||--o{ CAMPAIGN_DRAFT : "초안을 가진다"
     CAMPAIGN ||--o{ APPROVAL_LOG : "승인 이력을 가진다"
@@ -50,24 +59,40 @@ erDiagram
 
     BRANCH {
         SERIAL id PK
-        VARCHAR branch_code "UNIQUE, VAL-01"
+        VARCHAR branch_code "UNIQUE, 숫자 6자리, VAL-01"
         VARCHAR name
         VARCHAR address
-        DECIMAL lat
-        DECIMAL lng
+        DECIMAL lat "nullable, 별도 지오코딩 배치가 채움(RULE-BRANCH-03), VAL-03 폐기"
+        DECIMAL lng "nullable, 별도 지오코딩 배치가 채움(RULE-BRANCH-03), VAL-03 폐기"
         DECIMAL coverage_radius_km "VAL-02"
         VARCHAR primary_industry_tags
         BOOLEAN handles_forex
         INT atm_count
-        TIMESTAMP effective_from "RULE-BRANCH-01"
+        TIMESTAMP effective_from "RULE-BRANCH-01, INSERT/UPDATE 트리거가 자동 설정(CONST-19)"
+    }
+
+    BRANCH_HISTORY {
+        SERIAL id PK
+        INT branch_id FK
+        VARCHAR name
+        VARCHAR address
+        DECIMAL lat
+        DECIMAL lng
+        DECIMAL coverage_radius_km
+        VARCHAR primary_industry_tags
+        BOOLEAN handles_forex
+        INT atm_count
+        TIMESTAMP valid_until "이 스냅샷이 유효했던 종료 시각 = 다음 값의 BRANCH.effective_from"
     }
 
     USER {
         SERIAL id PK
         INT branch_id FK "본부는 NULL, VAL-08"
         VARCHAR name
-        VARCHAR role "RM/BRANCH_MANAGER/HQ"
-        VARCHAR password_hash
+        VARCHAR role "RM/BRANCH_MANAGER/HQ_MARKETING/HQ_COMPLIANCE, VAL-08"
+        VARCHAR password "평문 저장, 해싱 미적용(운영자 psql 직접 INSERT)"
+        INT session_timeout_minutes "비활동 시 자동 로그아웃(분)"
+        BOOLEAN session_extendable "세션 연장 가능 여부"
     }
 
     DATA_SOURCE_SNAPSHOT {
@@ -84,6 +109,7 @@ erDiagram
         INT branch_id FK
         INT business_id FK "NULL 허용, 사업체 단위 신호가 아니면 NULL"
         VARCHAR signal_type "사업자/상권/거시환경"
+        VARCHAR scope "BUSINESS/INDUSTRY/AREA — 사유 계층, RULE-TARGET-06"
         DECIMAL intensity "0~1 정규화"
         DATE as_of_date "VAL-09"
         INT event_id FK "NULL 허용, 승격/병합 시 채워짐"
@@ -99,13 +125,18 @@ erDiagram
 
     BUSINESS {
         SERIAL id PK
+        VARCHAR permit_mgt_no "UNIQUE, 인허가 관리번호 = 병합 기준키, CONST-13"
         VARCHAR name
         VARCHAR industry_code
-        DECIMAL lat
-        DECIMAL lng
-        VARCHAR biz_reg_no "VAL-04"
+        DECIMAL lat "WGS84, VAL-11"
+        DECIMAL lng "WGS84, VAL-11"
+        VARCHAR source_crs "원본 좌표계 코드 (예: EPSG:5174), VAL-11"
+        VARCHAR biz_reg_no "VAL-04, NULL 허용 — 표준 인허가 데이터 미제공"
         VARCHAR operating_status "정상/휴업/폐업/영업정지"
+        VARCHAR status_source "PERMIT / NTS, CONST-15"
+        DATE licensed_on "인허가일자 — 신선도 항 R 계산용, RULE-TARGET-05"
         DATE status_checked_at
+        DATE population_as_of "모집단 적재 기준월, REQ-16"
     }
 
     RECOMMENDATION {
@@ -113,6 +144,8 @@ erDiagram
         INT branch_id FK
         INT business_id FK
         DECIMAL score
+        DECIMAL freshness_score "신선도 항 R, RULE-TARGET-05"
+        VARCHAR reason_tier "BUSINESS/INDUSTRY/AREA, RULE-TARGET-06"
         INT rank_in_branch
         BOOLEAN is_exploration_slot "RULE-TARGET-03/04"
         DATE recommended_on
@@ -159,6 +192,17 @@ erDiagram
         VARCHAR unit
         INT updated_by FK
         TIMESTAMP updated_at
+    }
+
+    BATCH_RUN {
+        SERIAL id PK
+        VARCHAR run_type "SCHEDULED/MANUAL"
+        VARCHAR status "RUNNING/SUCCESS/FAILED"
+        INT triggered_by FK "NULL 허용 — SCHEDULED는 트리거 계정 없음, VAL-08"
+        TIMESTAMP requested_at
+        TIMESTAMP started_at "NULL 허용, RUNNING 전이 시 설정"
+        TIMESTAMP completed_at "NULL 허용"
+        TEXT failure_reason "NULL 허용, status='FAILED'일 때만"
     }
 
     OPERATION_FORECAST {
@@ -212,27 +256,44 @@ erDiagram
 
 | 테이블 | 컬럼 | 타입 | 설명 |
 |---|---|---|---|
-| BRANCH | branch_code | VARCHAR(20) | VAL-01(유일, 영문 대문자+숫자) |
+| BRANCH | branch_code | VARCHAR(6) | VAL-01(유일, 숫자 6자리, `CHECK (branch_code ~ '^[0-9]{6}$')`) |
 | BRANCH | coverage_radius_km | DECIMAL(3,1) | VAL-02(0.5~3.0) |
-| BRANCH | effective_from | TIMESTAMP | RULE-BRANCH-01(변경 익일 배치부터 반영), 저장 시 다음 배치 실행 시각으로 자동 설정 |
-| USER | role | VARCHAR(20) | 'RM', 'BRANCH_MANAGER', 'HQ' 중 하나 (VAL-08) |
-| USER | branch_id | INT (FK → BRANCH.id) | HQ 역할은 NULL 허용, 그 외는 필수 (VAL-08) |
+| BRANCH | lat, lng | DECIMAL | nullable. 별도 지오코딩 배치(10분 주기)가 비동기로 채우며, F-1 배치와의 실행 순서를 보장하지 않는다(RULE-BRANCH-03). VAL-03(지오코딩 성공 필수)은 폐기 |
+| BRANCH | effective_from | TIMESTAMP | RULE-BRANCH-01(변경 익일 배치부터 반영). INSERT/UPDATE 트리거가 다음 날 07:30으로 자동 설정한다(CONST-19) |
+| BRANCH_HISTORY | valid_until | TIMESTAMP | 이 스냅샷 값이 유효했던 종료 시각. `BRANCH.effective_from`과 동일 시각으로 트리거가 기록한다 |
+| USER | role | VARCHAR(20) | 'RM', 'BRANCH_MANAGER', 'HQ_MARKETING', 'HQ_COMPLIANCE' 중 하나 (VAL-08). 'HQ_COMPLIANCE'만 `APPROVAL_LOG.stage='COMPLIANCE'` 승인 권한을 가진다(RULE-CAMPAIGN-01) |
+| USER | branch_id | INT (FK → BRANCH.id) | 'HQ_MARKETING'/'HQ_COMPLIANCE' 역할은 NULL 허용, 그 외는 필수 (VAL-08) |
+| USER | password | VARCHAR | **평문 저장, 해싱 미적용**(`report/db-schema-decisions-review.md` 결정). 운영자가 psql로 직접 INSERT하며 별도 가입 화면·API는 없다 |
+| USER | session_timeout_minutes | INT | 비활동 시 자동 로그아웃까지의 분 단위 시간 |
+| USER | session_extendable | BOOLEAN | 세션 연장 UI 노출 여부 |
 | DATA_SOURCE_SNAPSHOT | raw_payload | JSONB | 재현성 검증(TEST-06)을 위한 원본 응답 보존 |
 | SIGNAL | intensity | DECIMAL(4,3) | 0.000~1.000 정규화값 |
+| SIGNAL | scope | VARCHAR(10) | 'BUSINESS'(그 사업체에만 적용) / 'INDUSTRY'(업종 전반) / 'AREA'(반경 내 전체). RECOMMENDATION.reason_tier 산정에 쓰인다(RULE-TARGET-06) |
 | SIGNAL | event_id | INT (FK → EVENT.id) | NULL이면 임계치 미달로 승격되지 않은 신호(RULE-SENSE-03) |
 | EVENT | status | VARCHAR(10) | 'ACTIVE'(활성) / 'MERGED'(쿨다운 내 병합됨, RULE-SENSE-01) / 'TRIMMED'(지점 상한 초과로 절사됨, RULE-SENSE-02) |
-| BUSINESS | biz_reg_no | VARCHAR(10) | VAL-04(10자리 숫자) |
+| BUSINESS | permit_mgt_no | VARCHAR(30) | 지방행정 인허가 관리번호. 월간 모집단 재적재 시 병합 기준키(CONST-13, REQ-16) |
+| BUSINESS | lat, lng | DECIMAL | WGS84(EPSG:4326)로만 저장(VAL-11, CONST-14) |
+| BUSINESS | source_crs | VARCHAR(20) | 원본 좌표계 코드(예: 'EPSG:5174'). NULL 불가(VAL-11, CONST-14) |
+| BUSINESS | biz_reg_no | VARCHAR(10) | VAL-04(10자리 숫자), **NULL 허용** — 표준 인허가 데이터는 사업자등록번호를 제공하지 않는다 |
 | BUSINESS | operating_status | VARCHAR(10) | '정상'/'휴업'/'폐업'/'영업정지' |
+| BUSINESS | status_source | VARCHAR(10) | 'PERMIT'(인허가 영업상태 기준) / 'NTS'(국세청 보완 조회로 갱신됨). `biz_reg_no`가 NULL이면 반드시 'PERMIT'(CONST-15, REQ-02) |
+| BUSINESS | licensed_on | DATE | 인허가일자. RULE-TARGET-05 신선도 항 ①(인허가 경과일 감쇠) 계산에 사용 |
+| BUSINESS | population_as_of | DATE | 모집단 적재 기준월(REQ-16, UC-17) |
+| RECOMMENDATION | freshness_score | DECIMAL(4,3) | RULE-TARGET-05 신선도 항 `R`, 0~1 정규화 |
+| RECOMMENDATION | reason_tier | VARCHAR(10) | 'BUSINESS'/'INDUSTRY'/'AREA' 중 선정 사유의 최상위 계층(RULE-TARGET-06). 채택률 대시보드의 상권사유비율 집계 기준 |
 | RECOMMENDATION | rank_in_branch | INT | 1~20, 지점·일자 내 순위 |
-| RECOMMENDATION | is_exploration_slot | BOOLEAN | RULE-TARGET-03의 탐색 슬롯 3건 여부 |
+| RECOMMENDATION | is_exploration_slot | BOOLEAN | RULE-TARGET-03의 탐색 슬롯 3건 여부. **1~20위 안에 포함되며 21~23위를 의미하지 않는다** |
 | BRIEF | citation_tags | JSONB | `[소스명, 기준일]` 배열, RULE-BRIEF-01 |
 | TAG_FEEDBACK | tag_value | VARCHAR(10) | 'VISITED'(방문함)/'HOLD'(보류)/'REJECTED'(부적합) |
 | TAG_FEEDBACK | reject_reason | VARCHAR(20) | VAL-06, tag_value='REJECTED'일 때만 필수 |
 | SIGNAL_WEIGHT | weight | DECIMAL(4,3) | VAL-10(0.2~2.0으로 클리핑) |
 | SIGNAL_WEIGHT | alpha, beta | DECIMAL | 베타분포 파라미터(도메인 정의서 5.2절) |
 | THRESHOLD_CONFIG | threshold_value | DECIMAL | VAL-05(0 이상, 단위는 `unit` 컬럼과 일치) |
-| CAMPAIGN | status | VARCHAR(20) | 'DRAFT'/'MANAGER_REVIEW'/'APPROVED'/'HANDED_OFF' (RULE-CAMPAIGN-01 순서를 그대로 반영) |
+| CAMPAIGN | status | VARCHAR(20) | 'DRAFT'(초안) / 'MANAGER_REVIEW'(지점장 검토 완료, 준법 승인 대기) / 'APPROVED'(준법 승인 완료) / 'HANDED_OFF'(발송 채널 이관 완료). RULE-CAMPAIGN-01 순서를 그대로 반영하며, `1-domain-definition.md`의 한글 상태명(초안/지점장검토/준법승인/이관완료)과 1:1 대응한다 |
 | CAMPAIGN_DRAFT | has_ad_disclosure | BOOLEAN | VAL-07, false인 초안은 지점장 검토 요청 자체가 불가 |
+| BATCH_RUN | run_type | VARCHAR(10) | 'SCHEDULED'(07:00 예약 실행) / 'MANUAL'(UC-18 수동 재실행) |
+| BATCH_RUN | triggered_by | INT (FK → USER.id) | 'SCHEDULED'는 NULL, 'MANUAL'은 필수(RULE-SENSE-06). 지점장/본부(마케팅) 역할만 가능(VAL-08) |
+| BATCH_RUN | status | VARCHAR(10) | 'RUNNING'/'SUCCESS'/'FAILED'. 배치 진행 상태를 프론트엔드가 폴링해 완료를 감지한다 |
 
 ---
 
@@ -240,7 +301,8 @@ erDiagram
 
 | 관계 | 설명 |
 |---|---|
-| BRANCH 1 : N USER | 한 지점은 여러 계정(RM, 지점장)을 가질 수 있다. 본부 계정은 지점에 속하지 않는다 |
+| BRANCH 1 : N USER | 한 지점은 여러 계정(RM, 지점장)을 가질 수 있다. 본부(마케팅)·본부(준법) 계정은 지점에 속하지 않는다 |
+| BRANCH 1 : N BRANCH_HISTORY | 지점 정보가 UPDATE될 때마다 옛 값이 이력으로 쌓인다(RULE-BRANCH-01) |
 | BRANCH 1 : N EVENT | 신호는 지점 단위로 승격된다 |
 | BRANCH 1 : N RECOMMENDATION | 접촉 명부는 지점별로 생성된다 |
 | BUSINESS 1 : N RECOMMENDATION | 한 사업체가 여러 지점의 접촉 명부에 동시에 오를 수 있다(상권이 겹치는 경우) |
@@ -249,6 +311,7 @@ erDiagram
 | RECOMMENDATION N : M EVENT (RECOMMENDATION_EVENT) | 추천 1건의 선정 사유는 여러 이벤트를 근거로 가질 수 있다 |
 | CAMPAIGN 1 : N CAMPAIGN_DRAFT | 캠페인 문구는 검토 과정에서 여러 버전을 가질 수 있다 |
 | CAMPAIGN N : M BRANCH (CAMPAIGN_TARGET_BRANCH) | 한 캠페인은 여러 지점을 대상으로 하고, 한 지점은 여러 캠페인의 대상이 될 수 있다 |
+| USER 1 : N BATCH_RUN | 수동 재실행(MANUAL)은 요청 계정이 남지만, 예약 실행(SCHEDULED)은 트리거 계정이 없다(NULL) |
 | CAMPAIGN 1 : N APPROVAL_LOG | 지점장 승인, 준법 승인 각각 이력이 남는다 |
 
 ---
@@ -257,9 +320,9 @@ erDiagram
 
 | 식별자 | 제약 내용 | 근거 |
 |---|---|---|
-| CONST-01 | `BRANCH.branch_code`는 전체 지점 중 유일해야 한다 (UNIQUE) | VAL-01 |
+| CONST-01 | `BRANCH.branch_code`는 전체 지점 중 유일해야 하며 숫자 6자리 형식이어야 한다 (`UNIQUE`, `CHECK (branch_code ~ '^[0-9]{6}$')`) | VAL-01 |
 | CONST-02 | `BRANCH.coverage_radius_km`는 0.5 이상 3.0 이하여야 한다 | VAL-02 |
-| CONST-03 | `USER.role = 'HQ'`이면 `USER.branch_id`는 NULL이어야 하고, 그 외 역할은 NULL일 수 없다 | VAL-08 |
+| CONST-03 | `USER.role`이 `'HQ_MARKETING'` 또는 `'HQ_COMPLIANCE'`이면 `USER.branch_id`는 NULL이어야 하고, 그 외 역할(`'RM'`, `'BRANCH_MANAGER'`)은 NULL일 수 없다 | VAL-08 |
 | CONST-04 | 동일 `BRANCH.id` 내에서 `EVENT`는 `occurred_on` 하루 기준 `status='ACTIVE'`인 행이 상한(기본 8건)을 넘을 수 없다 | RULE-SENSE-02 |
 | CONST-05 | `SIGNAL.event_id`가 NULL이 아니려면 해당 SIGNAL의 `intensity`가 승격 시점의 `THRESHOLD_CONFIG.threshold_value`를 초과해야 한다 | RULE-SENSE-03 |
 | CONST-06 | 지점·일자 기준 `RECOMMENDATION.rank_in_branch`는 1~20 범위이며, `is_exploration_slot = TRUE`인 행은 정확히 3건이어야 한다 | RULE-TARGET-03 |
@@ -268,11 +331,22 @@ erDiagram
 | CONST-09 | `SIGNAL_WEIGHT`는 표본수(`sample_count`) 30 미만인 행을 갱신 배치 대상에서 제외한다(갱신하지 않고 이전 값 유지) | RULE-LEARN-03 |
 | CONST-10 | `CAMPAIGN_DRAFT.has_ad_disclosure = FALSE`인 행은 `CAMPAIGN.status`를 'MANAGER_REVIEW'로 전이시킬 수 없다 | VAL-07 |
 | CONST-11 | `CAMPAIGN.status = 'HANDED_OFF'`가 되려면 `APPROVAL_LOG`에 `stage='MANAGER'`와 `stage='COMPLIANCE'` 승인이 모두 존재해야 한다 | RULE-CAMPAIGN-01 |
+| CONST-12 | `APPROVAL_LOG.stage = 'COMPLIANCE'` 행의 `approved_by`가 가리키는 `USER.role`은 반드시 `'HQ_COMPLIANCE'`여야 한다(`'HQ_MARKETING'` 등 다른 역할은 이 stage로 기록될 수 없다) | RULE-CAMPAIGN-01, VAL-08 |
+| CONST-13 | `BUSINESS.permit_mgt_no`(지방행정 인허가 관리번호)는 전체 사업체 중 유일하며, 월간 재적재 시 이 키로 병합한다(신규 행 생성 아님) | REQ-16 |
+| CONST-14 | `BUSINESS.lat/lng`는 WGS84로만 저장하며, `source_crs`가 NULL일 수 없다 | VAL-11 |
+| CONST-15 | `BUSINESS.biz_reg_no`가 NULL이면 `status_source`는 `'PERMIT'`여야 한다(국세청 조회 불가) | REQ-02 |
+| CONST-16 | `BATCH_RUN.run_type = 'MANUAL'`이면 `triggered_by`는 NULL일 수 없고, 해당 `USER.role`은 `'BRANCH_MANAGER'` 또는 `'HQ_MARKETING'`이어야 한다 | RULE-SENSE-06, VAL-08 |
+| CONST-17 | 임의 시점에 `BATCH_RUN.status = 'RUNNING'`인 행은 최대 1건이다(신규 실행은 이 조건이 없을 때만 생성) | RULE-SENSE-06 |
+| CONST-18 | 동일 `triggered_by`의 `run_type = 'MANUAL'` 행 중 직전 `requested_at`으로부터 30분이 지나지 않았으면 신규 행을 생성할 수 없다 | VAL-12 |
+| CONST-19 | `BRANCH`에 INSERT·UPDATE가 발생하면 트리거가 변경 전 값을 `BRANCH_HISTORY`(`valid_until` = 신규 `effective_from`)로 옮기고, `BRANCH.effective_from`을 다음 날 07:30으로 자동 설정한다 | RULE-BRANCH-01 |
+| CONST-20 | 여러 행 집계가 필요한 제약(CONST-04 지점당 이벤트 상한, CONST-06 탐색슬롯 3건/순위 범위, CONST-09 표본수 30 기준 갱신 제외, CONST-11 캠페인 다단계 승인)은 DB `CHECK` 제약으로 표현하지 않는다. DB CHECK는 단일 행 검증(VAL-01, 02, 04, 05, 06, 08, 09, 10)에 한정하고, 여러 행 집계 제약은 애플리케이션·배치 로직에서만 강제한다(`report/db-schema-decisions-review.md` §6) | — |
 
 ---
 
 ## 5. 참고 문서
 
-- `1-domain-definition.md` (v1.0.0): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
-- `2-prd.md` (v1.0.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
-- `4-project-principle.md` (v1.0.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `1-domain-definition.md` (v1.4.0): 3장 엔티티 정의, 4장 도메인 규칙, 5장 핵심 계산값 정의
+- `2-prd.md` (v1.4.0): 5장 기술 스택(PostgreSQL 17, ORM 미사용)
+- `4-project-principle.md` (v1.5.0): 6장 `database/schema.sql` 단일 파일 스키마 컨벤션
+- `report/CHANGE-REQUEST_v1.md`: BUSINESS·SIGNAL·RECOMMENDATION 컬럼 보강(CHG-08) 근거
+- `report/db-schema-decisions-review.md`: USER 평문 비밀번호, BRANCH/USER 운영자 직접 입력, `BRANCH_HISTORY` 이력 테이블, 지오코딩 배치 분리, DB CHECK 적용 범위 결정 근거
