@@ -8,12 +8,12 @@
 
 ## 1. 개요
 
-BranchSense는 CRM과 **단방향 파일 기반**으로 연동한다.
+C-MAKER는 CRM과 **단방향 파일 기반**으로 연동한다.
 
 시스템이 접촉 명부(TOP 20)를 CSV/XLSX 파일로 생성하면, 담당자가 해당 파일을 기존 CRM에 직접 등록하는 방식이다. 양방향 실시간 API 연동은 Phase 3 이후 재검토한다.
 
 ```
-BranchSense                          CRM
+C-MAKER                          CRM
 ─────────────                        ─────────
 접촉 명부 생성
   → 파일 다운로드 (CSV/XLSX)  →  담당자가 수동 업로드
@@ -108,7 +108,7 @@ GET /branches/{branch_id}/recommendations/export
 
 - CRM API 직접 연동 (Push 방식)
 - 태깅 결과를 CRM에서 역으로 수신 (양방향)
-- CRM 내 접촉 이력과 BranchSense 채택률 연계
+- CRM 내 접촉 이력과 C-MAKER 채택률 연계
 
 ---
 
