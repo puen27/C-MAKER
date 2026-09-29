@@ -1,9 +1,10 @@
 # C-MAKER 구현 가이드
 
-- **버전**: v2.0.0
-- **작성일**: 2026-09-29
+- **버전**: v2.1.0
+- **작성일**: 2026-09-29 (v2.1.0 현행화: 2026-09-29)
 - **목적**: EC2 단일 인스턴스에 프론트엔드·백엔드·DB를 구성하고, MVP 기능을 구현하기 위한 종합 구현 계획서
 - **작성 방법**: grill-me 방식으로 39개 설계 결정을 확정한 뒤 작성
+- **v2.1.0 변경**: EC2 서버 현행 구성(Tomcat→serve 전환 완료, Node.js v24/nvm, Python 3.14.4, PostgreSQL 18.6) 반영
 
 ---
 
@@ -27,6 +28,8 @@
 ## 1. 인프라 구성 — EC2 단일 인스턴스
 
 ### 1.1 네트워크 포트 구성
+
+> **현행 확인 (2026-09-29)**: 기존에 8080 포트를 점유하던 Tomcat 11.0.26은 `systemctl disable` 처리 완료. serve가 8080을 사용하는 아래 구성이 현재 서버와 일치한다.
 
 ```
 ┌─ EC2 (Ubuntu 26.04.1 LTS) ────────────────────────────────────────┐
@@ -77,13 +80,17 @@
 
 ### 1.3 EC2 초기 설정
 
+> **현행 확인 (2026-09-29)**: 아래 패키지는 이미 설치 완료된 상태.
+> Python 3.14.4, Node.js v24.21.0 (nvm), npm 11.19.0, PostgreSQL 18.6, Nginx 1.28.3, serve 14.2.6
+
 ```bash
 # Ubuntu 26.04.1 LTS 기준
+# ── 이미 설치된 패키지는 건너뛴다 ──
 
 # 1) 시스템 업데이트
 sudo apt update && sudo apt upgrade -y
 
-# 2) Python (Ubuntu 26.04 기본 제공 버전 사용)
+# 2) Python (Ubuntu 26.04 기본 제공 3.14.x)
 sudo apt install python3 python3-pip python3-venv -y
 
 # 3) PostgreSQL
@@ -94,19 +101,25 @@ sudo systemctl enable --now postgresql
 sudo apt install nginx -y
 sudo systemctl enable --now nginx
 
-# 5) Node.js 20 LTS
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install nodejs -y
+# 5) Node.js — nvm으로 관리 (현행 v24.21.0)
+#    nodesource 대신 nvm 사용. 이미 설치되어 있으면 생략.
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 24    # 현행 서버 기준. 20 LTS도 호환됨.
 
 # 6) serve (전역 설치)
-sudo npm install -g serve
+npm install -g serve
 
-# 7) 프로젝트 클론
+# 7) Tomcat이 설치되어 있다면 비활성화 (8080 포트 충돌 방지)
+sudo systemctl stop tomcat 2>/dev/null
+sudo systemctl disable tomcat 2>/dev/null
+
+# 8) 프로젝트 클론
 cd /home/ubuntu
 git clone <repository-url> c-maker
 cd c-maker
 
-# 8) Python 가상환경 (프로젝트 루트)
+# 9) Python 가상환경 (프로젝트 루트)
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
@@ -115,6 +128,8 @@ pip install -r backend/requirements.txt
 ---
 
 ## 2. Nginx 설정
+
+> **현행 확인 (2026-09-29)**: 기존 `/etc/nginx/sites-available/myapp` (Tomcat + FastAPI 프록시)은 `myapp.bak`으로 백업 후 제거 완료. 아래 `c-maker` 설정이 현재 서버에 적용되어 있다.
 
 ```nginx
 # /etc/nginx/sites-available/c-maker
@@ -148,8 +163,11 @@ server {
 ```
 
 ```bash
+# 기존 myapp 설정 백업 (이미 완료된 경우 생략)
+sudo cp /etc/nginx/sites-available/myapp /etc/nginx/sites-available/myapp.bak 2>/dev/null
+sudo rm -f /etc/nginx/sites-enabled/myapp
+
 sudo ln -sf /etc/nginx/sites-available/c-maker /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -220,8 +238,10 @@ FRONTEND_ORIGIN=http://localhost
 
 ## 4. PostgreSQL 초기화
 
+> **현행 확인 (2026-09-29)**: 서버에 PostgreSQL 18.6 가동 중. 기존 `myapp_db` (owner: `myapp_user`)가 존재한다. C-MAKER용 DB/유저를 별도 생성하며, 기존 myapp_db는 삭제하지 않고 공존시킨다.
+
 ```bash
-# DB 및 사용자 생성
+# DB 및 사용자 생성 (기존 myapp_db/myapp_user와 별개)
 sudo -u postgres psql <<EOF
 CREATE USER cmaker_app WITH PASSWORD '<strong-password>';
 CREATE DATABASE cmaker OWNER cmaker_app;
@@ -229,6 +249,7 @@ EOF
 
 # pg_hba.conf — scram-sha-256 인증 확인
 # local   all   cmaker_app   scram-sha-256
+# ※ peer 인증만 설정되어 있으면 psql -U cmaker_app 접속 시 실패하므로 확인 필요
 
 # 스키마 적용
 cd /home/ubuntu/c-maker
@@ -320,6 +341,8 @@ backend/
 ```
 
 ### 5.2 의존성 (`requirements.txt`)
+
+> **참고**: 현행 서버 Python 3.14.4 기준. `python-jose`는 Python 3.13+ 에서 빌드 문제가 보고된 사례가 있으므로, 설치 실패 시 `PyJWT`로 대체를 검토한다.
 
 ```
 fastapi==0.115.*
@@ -605,6 +628,12 @@ sudo chown ubuntu:ubuntu /var/log/c-maker
 
 ## 12. systemd 서비스
 
+> **사전 조치**: Tomcat이 설치되어 있다면 8080 포트 충돌을 방지하기 위해 먼저 비활성화한다.
+> ```bash
+> sudo systemctl stop tomcat && sudo systemctl disable tomcat
+> ```
+> 현행 서버에서는 2026-09-29에 완료됨.
+
 ### 12.1 FastAPI (`c-maker-api.service`)
 
 ```ini
@@ -626,6 +655,11 @@ WantedBy=multi-user.target
 
 ### 12.2 프론트엔드 (`c-maker-frontend.service`)
 
+> **참고**: nvm 환경에서 `npm install -g serve`로 설치하면 serve 바이너리가 `/usr/bin/serve`가 아닌 nvm 경로에 위치할 수 있다. 아래 명령으로 실제 경로를 확인한 뒤 `ExecStart`를 맞춘다.
+> ```bash
+> which serve   # 예: /home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve
+> ```
+
 ```ini
 [Unit]
 Description=C-MAKER Frontend (serve)
@@ -633,7 +667,8 @@ After=network.target
 
 [Service]
 User=ubuntu
-ExecStart=/usr/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l 8080
+# ※ which serve 결과로 아래 경로를 교체할 것
+ExecStart=/home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l 8080
 Restart=always
 RestartSec=5
 
@@ -657,28 +692,41 @@ sudo systemctl enable --now c-maker-frontend
 
 ### 13.1 초기 배포
 
-```bash
-# 1) 소스
-cd /home/ubuntu/c-maker
-git pull origin main
+> **전제**: §1.3의 패키지 설치와 Tomcat 비활성화(§12)가 완료된 상태에서 진행한다.
 
-# 2) 백엔드 의존성
+```bash
+# 0) 기존 Tomcat/Nginx 정리 (이미 완료된 경우 생략)
+sudo systemctl stop tomcat 2>/dev/null && sudo systemctl disable tomcat 2>/dev/null
+sudo cp /etc/nginx/sites-available/myapp /etc/nginx/sites-available/myapp.bak 2>/dev/null
+sudo rm -f /etc/nginx/sites-enabled/myapp
+
+# 기존 수동 실행 uvicorn이 있다면 종료
+sudo ss -tlnp | grep :8000 && echo "8000 포트 점유 프로세스가 있으면 PID 확인 후 sudo kill <PID>"
+
+# 1) 소스
+cd /home/ubuntu
+git clone <repository-url> c-maker
+cd c-maker
+
+# 2) Python 가상환경 + 백엔드 의존성
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 
-# 3) DB
+# 3) DB (기존 myapp_db와 별개로 cmaker DB 생성)
+sudo -u postgres psql -c "CREATE USER cmaker_app WITH PASSWORD '<strong-password>';"
+sudo -u postgres psql -c "CREATE DATABASE cmaker OWNER cmaker_app;"
 psql -U cmaker_app -d cmaker -f backend/database/schema.sql
 
 # 4) 초기 데이터 (BRANCH + USER + THRESHOLD_CONFIG)
 psql -U cmaker_app -d cmaker -f backend/database/seed.sql
 
-# 5) 프론트엔드
+# 5) 프론트엔드 (nvm Node.js v24 사용)
 cd frontend && npm ci && npm run build && cd ..
 
 # 6) Nginx
 sudo cp deploy/c-maker.nginx.conf /etc/nginx/sites-available/c-maker
 sudo ln -sf /etc/nginx/sites-available/c-maker /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 
 # 7) systemd 서비스
@@ -814,6 +862,16 @@ cd frontend && npm ci && npm run build
 | 3 | ECOS / 오피넷 별도 포털 가입 | 미완료 | ecos.bok.or.kr, opinet.co.kr |
 | 4 | LiteLLM Gateway 인증키 형식 | `.pem`/`.ppk` → 키 문자열 확인 필요 | Gateway 관리자 확인 |
 | 5 | LLM 모델 확정 | `claude-opus-4-8` (변경 가능) | opus 계열 내 최종 선택 |
+
+### 17.1 해소된 인프라 사항 (2026-09-29)
+
+| 항목 | 결과 | 비고 |
+|---|---|---|
+| Tomcat ↔ serve 8080 포트 충돌 | ✅ 해소 | Tomcat disable, serve가 8080 사용 |
+| Nginx myapp ↔ c-maker 설정 충돌 | ✅ 해소 | myapp.bak 백업, c-maker 적용 |
+| PostgreSQL myapp_db 공존 | ✅ 확인 | cmaker DB 별도 생성, myapp_db 유지 |
+| Node.js 버전 (v24 vs v20) | ✅ 확인 | nvm v24 현행 사용, 빌드 호환 문제 없음 |
+| Python 3.14 패키지 호환성 | ⚠️ 모니터링 | python-jose 빌드 실패 시 PyJWT 대체 |
 
 ---
 
