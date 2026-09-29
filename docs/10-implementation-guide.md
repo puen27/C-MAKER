@@ -1,10 +1,11 @@
 # C-MAKER 구현 가이드
 
-- **버전**: v2.1.0
-- **작성일**: 2026-09-29 (v2.1.0 현행화: 2026-09-29)
+- **버전**: v2.2.0
+- **작성일**: 2026-09-29 (v2.2.0 현행화: 2026-09-29)
 - **목적**: EC2 단일 인스턴스에 프론트엔드·백엔드·DB를 구성하고, MVP 기능을 구현하기 위한 종합 구현 계획서
 - **작성 방법**: grill-me 방식으로 39개 설계 결정을 확정한 뒤 작성
 - **v2.1.0 변경**: EC2 서버 현행 구성(Tomcat→serve 전환 완료, Node.js v24/nvm, Python 3.14.4, PostgreSQL 18.6) 반영
+- **v2.2.0 변경**: DB를 기존 `myapp_db`/`myapp_user` 사용으로 확정. `cmaker`/`cmaker_app` 신규 생성 관련 내용 전면 삭제
 
 ---
 
@@ -181,9 +182,9 @@ sudo nginx -t && sudo systemctl reload nginx
 # ── DB ──
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=cmaker
-DB_USER=cmaker_app
-DB_PASSWORD=<strong-password>
+DB_NAME=myapp_db
+DB_USER=myapp_user
+DB_PASSWORD=<myapp_user-password>
 
 # ── JWT ──
 JWT_SECRET=<random-256bit-secret>
@@ -218,7 +219,7 @@ VITE_API_BASE_URL=/api
 ```bash
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=cmaker
+DB_NAME=myapp_db
 DB_USER=
 DB_PASSWORD=
 JWT_SECRET=
@@ -238,23 +239,28 @@ FRONTEND_ORIGIN=http://localhost
 
 ## 4. PostgreSQL 초기화
 
-> **현행 확인 (2026-09-29)**: 서버에 PostgreSQL 18.6 가동 중. 기존 `myapp_db` (owner: `myapp_user`)가 존재한다. C-MAKER용 DB/유저를 별도 생성하며, 기존 myapp_db는 삭제하지 않고 공존시킨다.
+> **현행 확인 (2026-09-29)**: 서버에 PostgreSQL 18.6 가동 중. 기존에 생성된 **`myapp_db` (owner: `myapp_user`)를 C-MAKER 운영 DB로 사용한다.** 신규 DB/유저는 생성하지 않는다.
 
 ```bash
-# DB 및 사용자 생성 (기존 myapp_db/myapp_user와 별개)
-sudo -u postgres psql <<EOF
-CREATE USER cmaker_app WITH PASSWORD '<strong-password>';
-CREATE DATABASE cmaker OWNER cmaker_app;
-EOF
+# DB/유저 생성 단계 없음 — 기존 myapp_db / myapp_user 사용
 
 # pg_hba.conf — scram-sha-256 인증 확인
-# local   all   cmaker_app   scram-sha-256
-# ※ peer 인증만 설정되어 있으면 psql -U cmaker_app 접속 시 실패하므로 확인 필요
+# local   all   myapp_user   scram-sha-256
+# ※ peer 인증만 설정되어 있으면 psql -U myapp_user 접속 시 실패하므로 확인 필요
+sudo grep -nE '^(local|host)' /etc/postgresql/*/main/pg_hba.conf
+
+# 접속 확인
+psql -U myapp_user -d myapp_db -c "SELECT current_database(), current_user;"
 
 # 스키마 적용
 cd /home/ubuntu/c-maker
-psql -U cmaker_app -d cmaker -f backend/database/schema.sql
+psql -U myapp_user -d myapp_db -f backend/database/schema.sql
+
+# 테이블 생성 확인
+psql -U myapp_user -d myapp_db -c "\dt"
 ```
+
+> **주의**: `myapp_db`에 기존 테이블이 남아 있다면 C-MAKER 스키마와 이름이 충돌할 수 있다. 스키마 적용 전 `\dt`로 기존 테이블 목록을 확인한다.
 
 ---
 
@@ -713,13 +719,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
 
-# 3) DB (기존 myapp_db와 별개로 cmaker DB 생성)
-sudo -u postgres psql -c "CREATE USER cmaker_app WITH PASSWORD '<strong-password>';"
-sudo -u postgres psql -c "CREATE DATABASE cmaker OWNER cmaker_app;"
-psql -U cmaker_app -d cmaker -f backend/database/schema.sql
+# 3) DB 스키마 적용 (기존 myapp_db / myapp_user 사용, 신규 생성 없음)
+psql -U myapp_user -d myapp_db -c "\dt"   # 기존 테이블 충돌 여부 확인
+psql -U myapp_user -d myapp_db -f backend/database/schema.sql
 
 # 4) 초기 데이터 (BRANCH + USER + THRESHOLD_CONFIG)
-psql -U cmaker_app -d cmaker -f backend/database/seed.sql
+psql -U myapp_user -d myapp_db -f backend/database/seed.sql
 
 # 5) 프론트엔드 (nvm Node.js v24 사용)
 cd frontend && npm ci && npm run build && cd ..
@@ -869,7 +874,7 @@ cd frontend && npm ci && npm run build
 |---|---|---|
 | Tomcat ↔ serve 8080 포트 충돌 | ✅ 해소 | Tomcat disable, serve가 8080 사용 |
 | Nginx myapp ↔ c-maker 설정 충돌 | ✅ 해소 | myapp.bak 백업, c-maker 적용 |
-| PostgreSQL myapp_db 공존 | ✅ 확인 | cmaker DB 별도 생성, myapp_db 유지 |
+| PostgreSQL DB/계정 결정 | ✅ 확정 | 기존 `myapp_db`/`myapp_user` 사용, 신규 생성 없음 |
 | Node.js 버전 (v24 vs v20) | ✅ 확인 | nvm v24 현행 사용, 빌드 호환 문제 없음 |
 | Python 3.14 패키지 호환성 | ⚠️ 모니터링 | python-jose 빌드 실패 시 PyJWT 대체 |
 
