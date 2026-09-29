@@ -3,14 +3,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchBrief } from '../api/brief.api';
 
-export function briefQueryKey(recommendationId: string) {
+export function briefQueryKey(recommendationId: number) {
   return ['brief', recommendationId] as const;
 }
 
-export function useBrief(recommendationId: string) {
+export function useBrief(recommendationId: number) {
   return useQuery({
     queryKey: briefQueryKey(recommendationId),
     queryFn: () => fetchBrief(recommendationId),
-    enabled: Boolean(recommendationId),
+    enabled: Number.isInteger(recommendationId) && recommendationId > 0,
   });
 }

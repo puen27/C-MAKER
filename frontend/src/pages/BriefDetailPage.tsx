@@ -2,28 +2,54 @@
 import { useParams } from 'react-router-dom';
 import { Layout } from '../components/common/Layout';
 import { BriefDetail } from '../components/brief/BriefDetail';
+import { TagUndoToast } from '../components/recommendation/TagUndoToast';
 import { useBrief } from '../queries/useBrief';
-import { useTagMutation } from '../queries/useTagMutation';
+import { useTagWithUndo } from '../queries/useTagWithUndo';
+import { useAuthStore } from '../stores/authStore';
 import { toUserMessage } from '../api/client';
 import type { RejectedReason, TagStatus } from '../types/recommendation';
+import { canTag } from '../utils/roles';
 
 export function BriefDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const recommendationId = id ?? '';
+  const recommendationId = Number(id);
+  const user = useAuthStore((state) => state.user);
   const { data: brief, isLoading, isError, error } = useBrief(recommendationId);
-  const tagMutation = useTagMutation();
+  const tagging = useTagWithUndo();
 
   function handleTag(status: TagStatus, rejectedReason?: RejectedReason) {
-    tagMutation.mutate({ recommendationId, tagStatus: status, rejectedReason });
+    if (!brief) return;
+    tagging.tag(
+      {
+        id: brief.recommendationId,
+        businessName: brief.businessName,
+        tagStatus: brief.tagStatus,
+        rejectedReason: brief.rejectedReason,
+      },
+      status,
+      rejectedReason,
+    );
   }
 
   return (
     <Layout>
-      {isLoading && <p>불러오는 중…</p>}
-      {isError && <p style={{ color: 'var(--color-danger)' }}>{toUserMessage(error)}</p>}
+      {isLoading && <p className="state-message">브리프를 불러오는 중…</p>}
+      {isError && <p className="state-message state-message--error">{toUserMessage(error)}</p>}
       {brief && (
-        <BriefDetail brief={brief} onTag={handleTag} tagPending={tagMutation.isPending} />
+        <BriefDetail
+          brief={brief}
+          canTag={user ? canTag(user.role) : false}
+          onTag={handleTag}
+          tagPending={tagging.isPending}
+        />
       )}
+      <TagUndoToast
+        lastChange={tagging.lastChange}
+        error={tagging.error}
+        pending={tagging.isPending}
+        onUndo={tagging.undo}
+        onDismiss={tagging.dismiss}
+      />
     </Layout>
   );
 }

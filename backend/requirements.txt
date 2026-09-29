@@ -1,0 +1,22 @@
+# C-MAKER 백엔드 의존성 (Python 3.14.x 기준, 로컬 3.14.6에서 설치 검증)
+#
+# docs/10-implementation-guide.md §5.2 대비 변경점
+# - pydantic 2.10.* → 2.13.5 : 2.10에는 Python 3.14용 pydantic-core wheel이 없다
+# - python-jose → PyJWT     : python-jose 3.3.x는 알려진 취약점(CVE-2024-33663/33664)이 있고
+#                              3.13+ 빌드 이슈가 보고되어 가이드 §5.2 권고대로 PyJWT로 대체
+# - openpyxl 추가            : CRM 등록 파일 XLSX 생성(REQ-07, UC-08)
+# - tzdata 추가              : zoneinfo("Asia/Seoul")가 Windows 등 tz DB가 없는 환경에서도 동작하도록
+fastapi==0.119.1
+uvicorn[standard]==0.54.0
+psycopg[binary]==3.3.6
+psycopg_pool==3.3.3
+pydantic==2.13.5
+pydantic-settings==2.15.0
+PyJWT==2.15.1
+requests==2.34.2
+httpx==0.28.1
+openai==1.109.1
+pyproj==3.8.0
+python-dotenv==1.2.3
+openpyxl==3.1.5
+tzdata==2026.4

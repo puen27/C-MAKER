@@ -1,23 +1,18 @@
-// 추천(RECOMMENDATION) API 클라이언트 (docs/4-project-principle.md §6, UC-06)
-//
-// ⚠ 실제 API 연동 지점: 백엔드 준비 후 mock 호출을
-// apiFetch<Recommendation[]>(`/recommendations?branchId=${branchId}&date=${date}`) 로 교체한다.
+// 추천(RECOMMENDATION) API 클라이언트 (UC-06, UC-08)
+// 소속 지점은 서버가 토큰으로 판단한다 — 클라이언트가 지점 ID를 보내지 않는다(OPS-03).
 
-import type { Recommendation } from '../types/recommendation';
-import { mockFetchRecommendations } from './mockData';
+import type { CrmFileFormat, Recommendation, RecommendationSummary } from '../types/recommendation';
+import { apiDownload, apiFetch } from './client';
 
-const MOCK_LATENCY_MS = 200;
-
-function delay<T>(value: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), MOCK_LATENCY_MS));
+export function fetchRecommendations(date: string): Promise<Recommendation[]> {
+  return apiFetch<Recommendation[]>(`/recommendations?date=${encodeURIComponent(date)}`);
 }
 
-export async function fetchRecommendations(
-  branchId: string,
-  date: string,
-): Promise<Recommendation[]> {
-  // TODO(실제 API 연동): return apiFetch<Recommendation[]>(`/recommendations?branchId=${branchId}&date=${date}`);
-  void branchId;
-  void date;
-  return delay(mockFetchRecommendations());
+export function fetchRecommendationSummary(date: string): Promise<RecommendationSummary> {
+  return apiFetch<RecommendationSummary>(`/recommendations/summary?date=${encodeURIComponent(date)}`);
+}
+
+/** CRM 등록 파일(CSV/XLSX) 다운로드 — REQ-07 */
+export function downloadCrmFile(date: string, format: CrmFileFormat): Promise<{ blob: Blob; filename: string }> {
+  return apiDownload(`/recommendations/export?date=${encodeURIComponent(date)}&format=${format}`);
 }

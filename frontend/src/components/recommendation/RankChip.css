@@ -1,0 +1,37 @@
+/*
+ * 순위 칩 — 명부 현황 스트립과 추천 카드가 같은 시각 언어를 쓴다.
+ * 미태깅: 점선 테두리(9-style-guide.md §5.3 .badge--dashed와 같은 "미완료" 형태)
+ * 태깅 완료: 상태색 채움 + 흰 글자(§2.3 매핑: 방문함 success · 보류 warning · 부적합 danger)
+ * 정보 요소이므로 pill이 아닌 사각 라운드(--radius-sm)를 쓴다(§1 행동=pill, 정보=사각).
+ */
+.rank-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+.rank-chip--untagged {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-text-disabled);
+  color: var(--color-text-secondary);
+}
+.rank-chip--visited {
+  background: var(--color-success);
+  color: #ffffff;
+}
+.rank-chip--hold {
+  background: var(--color-warning);
+  color: #ffffff;
+}
+.rank-chip--rejected {
+  background: var(--color-danger);
+  color: #ffffff;
+}

@@ -1,37 +1,31 @@
+/* 오늘의 접촉 TOP 20 — docs/8-wireframe.md §3 */
 .dashboard-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+.dashboard-page__title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
+  gap: var(--space-4);
 }
-
-.dashboard-page__title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-}
-
-.dashboard-page__banner {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-4);
-}
-
-.dashboard-page__filter-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-}
-
-.dashboard-page__filter-summary {
-  font-size: var(--font-size-sm);
+.dashboard-page__date {
+  margin-left: var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-regular);
   color: var(--color-text-secondary);
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
-
-.dashboard-page__error {
-  color: var(--color-danger);
+.dashboard-page__note {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: calc(-1 * var(--space-2)) 0 0;
+}
+.dashboard-page__filter-row {
+  margin: var(--space-2) 0 var(--space-4);
 }

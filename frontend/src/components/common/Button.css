@@ -1,14 +1,18 @@
+/* 공통 버튼 — docs/9-style-guide.md §5.1 */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  min-height: 36px;
   font-family: var(--font-family);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
   cursor: pointer;
-  border: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
 .btn:disabled {
@@ -23,7 +27,7 @@
   background: var(--color-primary);
   color: #ffffff;
   border-radius: var(--radius-full);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-5);
 }
 .btn--primary-pill:hover:not(:disabled) {
   background: var(--color-primary-hover);
@@ -42,9 +46,9 @@
 
 /* Secondary outline pill */
 .btn--outline-pill {
-  background: transparent;
+  background: var(--color-surface);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   border-radius: var(--radius-full);
   padding: var(--space-2) var(--space-4);
 }
@@ -55,9 +59,9 @@
 
 /* Secondary outline 사각 */
 .btn--outline-square {
-  background: transparent;
+  background: var(--color-surface);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-4);
 }
@@ -66,29 +70,87 @@
   color: var(--color-primary);
 }
 
-/* Tagging pills */
+/* Tagging pills — 미선택: 상태색 -bg 배경 / 선택됨: 상태색 채움 + 흰 글자 + ✓ (색과 형태 이중 인코딩, §1) */
+.btn--tag-visited,
+.btn--tag-hold,
+.btn--tag-rejected {
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+}
 .btn--tag-visited {
   background: var(--color-success-bg);
   color: var(--color-success);
-  border-radius: var(--radius-full);
-  padding: var(--space-2) var(--space-4);
 }
 .btn--tag-hold {
   background: var(--color-warning-bg);
   color: var(--color-warning);
-  border-radius: var(--radius-full);
-  padding: var(--space-2) var(--space-4);
 }
 .btn--tag-rejected {
   background: var(--color-danger-bg);
   color: var(--color-danger);
-  border-radius: var(--radius-full);
-  padding: var(--space-2) var(--space-4);
 }
-.btn--tag-visited.is-active,
-.btn--tag-hold.is-active,
+.btn--tag-visited:hover:not(:disabled),
+.btn--tag-hold:hover:not(:disabled),
+.btn--tag-rejected:hover:not(:disabled) {
+  border-color: currentColor;
+}
+.btn--tag-visited.is-active {
+  background: var(--color-success);
+  color: #ffffff;
+}
+.btn--tag-hold.is-active {
+  background: var(--color-warning);
+  color: #ffffff;
+}
 .btn--tag-rejected.is-active {
-  box-shadow: 0 0 0 2px currentColor inset;
+  background: var(--color-danger);
+  color: #ffffff;
+}
+.btn--tag-visited.is-active:hover:not(:disabled),
+.btn--tag-hold.is-active:hover:not(:disabled),
+.btn--tag-rejected.is-active:hover:not(:disabled) {
+  border-color: transparent;
+}
+/* 저장 요청이 도는 잠깐 동안만 비활성 — 색을 회색으로 바꾸지 않고 흐리게만 해 목록 전체가 깜빡이지 않게 한다 */
+.btn--tag-visited:disabled,
+.btn--tag-hold:disabled,
+.btn--tag-rejected:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.btn--tag-visited:disabled {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  border-color: transparent;
+}
+.btn--tag-hold:disabled {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border-color: transparent;
+}
+.btn--tag-rejected:disabled {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-color: transparent;
+}
+.btn--tag-visited.is-active:disabled {
+  color: #ffffff;
+  background: var(--color-success);
+}
+.btn--tag-hold.is-active:disabled {
+  color: #ffffff;
+  background: var(--color-warning);
+}
+.btn--tag-rejected.is-active:disabled {
+  color: #ffffff;
+  background: var(--color-danger);
+}
+.btn__check {
+  font-weight: var(--font-weight-bold);
+}
+.btn__caret {
+  font-size: var(--font-size-xs);
+  margin-left: 2px;
 }
 
 /* Danger (text only) */

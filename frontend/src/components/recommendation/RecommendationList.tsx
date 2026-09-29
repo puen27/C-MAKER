@@ -6,19 +6,30 @@ import type { Recommendation, RejectedReason, TagStatus } from '../../types/reco
 
 interface RecommendationListProps {
   recommendations: Recommendation[];
-  onTag: (id: string, status: TagStatus, rejectedReason?: RejectedReason) => void;
+  canTag: boolean;
+  tagDisabled?: boolean;
+  emptyMessage?: string;
+  onTag: (recommendation: Recommendation, status: TagStatus, rejectedReason?: RejectedReason) => void;
 }
 
-export function RecommendationList({ recommendations, onTag }: RecommendationListProps) {
+export function RecommendationList({
+  recommendations,
+  canTag,
+  tagDisabled,
+  emptyMessage = '표시할 항목이 없습니다.',
+  onTag,
+}: RecommendationListProps) {
   if (recommendations.length === 0) {
-    return <p>표시할 항목이 없습니다.</p>;
+    return <p className="state-panel">{emptyMessage}</p>;
   }
 
   return (
-    <div>
+    <ul className="rec-list">
       {recommendations.map((rec) => (
-        <RecommendationCard key={rec.id} recommendation={rec} onTag={onTag} />
+        <li key={rec.id}>
+          <RecommendationCard recommendation={rec} canTag={canTag} tagDisabled={tagDisabled} onTag={onTag} />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

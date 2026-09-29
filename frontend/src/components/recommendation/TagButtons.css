@@ -1,5 +1,6 @@
 .tag-buttons {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   position: relative;
@@ -9,6 +10,7 @@
   position: relative;
 }
 
+/* 드롭다운 메뉴 (부적합 사유 · CRM 파일 형식 공용) */
 .tag-buttons__dropdown {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -18,8 +20,21 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-modal);
-  padding: var(--space-2);
-  min-width: 160px;
+  padding: var(--space-1);
+  min-width: 168px;
+  animation: dropdown-in 0.12s ease-out;
+}
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.tag-buttons__dropdown-title {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }
 
 .tag-buttons__dropdown-item {
@@ -35,6 +50,28 @@
   cursor: pointer;
 }
 
-.tag-buttons__dropdown-item:hover {
+.tag-buttons__dropdown-item:hover,
+.tag-buttons__dropdown-item:focus-visible {
   background: var(--color-surface-alt);
+  outline-offset: -2px;
+}
+.tag-buttons__dropdown-item.is-current {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-medium);
+}
+.tag-buttons__dropdown-item.is-current::after {
+  content: ' ✓';
+}
+.crm-download__menu {
+  left: auto;
+  right: 0;
+}
+.crm-download__error {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  margin: 0;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
 }

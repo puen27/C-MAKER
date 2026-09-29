@@ -1,0 +1,56 @@
+.tag-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-5);
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-text);
+  color: var(--color-surface);
+  box-shadow: var(--shadow-modal);
+  font-size: var(--font-size-sm);
+  max-width: calc(100vw - 2 * var(--space-5));
+  animation: toast-in 0.18s ease-out;
+}
+/* 저장 확인은 사용자 행동에 대한 응답이므로 짧게 올라오며 나타난다 */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+.tag-toast.is-error {
+  background: var(--color-danger);
+}
+.tag-toast__action {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-primary-bg);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tag-toast__action:focus-visible,
+.tag-toast__close:focus-visible {
+  outline-color: var(--color-primary-bg);
+}
+.tag-toast__action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.tag-toast__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  padding: 0 var(--space-1);
+}

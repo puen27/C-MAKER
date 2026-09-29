@@ -1,0 +1,18 @@
+# /etc/systemd/system/c-maker-api.service  (docs/10-implementation-guide.md §12.1)
+[Unit]
+Description=C-MAKER FastAPI
+After=network.target postgresql.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/c-maker
+EnvironmentFile=/home/ubuntu/c-maker/.env
+ExecStart=/home/ubuntu/c-maker/.venv/bin/python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+# 수동 재실행(REQ-17)으로 기동한 run_daily.py 자식 프로세스가 API 재시작 때 함께 종료되지 않도록
+# 메인 프로세스만 종료 신호를 받게 한다. 비정상 종료된 실행은 batch_stale_minutes 경과 후 FAILED 처리된다.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

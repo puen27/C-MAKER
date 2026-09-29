@@ -139,4 +139,44 @@ INPUT(지점 등록) → SENSE(신호 감지, 매일 07:30) → {TARGET(명부),
 
 ## 10. 프로젝트 상태
 
-현재 실제 소스 코드는 없다. `.claude/agents/`에 범용 개발 역할 서브에이전트(backend-developer, frontend-developer, api-designer 등)가 등록되어 있으며 아직 git에 커밋되지 않은 상태다. 코드가 추가되면 이 섹션에 실제 빌드/린트/테스트 명령과 디렉터리 구조를 채워 넣는다.
+MVP 범위(F-0 운영자 입력, F-1 일간 신호, F-2 명부·브리프, F-5 태깅 수집, 임계치 관리, 수동 재연동)가 구현되어 있다. 구현 기준은 `docs/10-implementation-guide.md`다.
+
+### 디렉터리
+
+```
+backend/
+  api/        FastAPI — routers → services → repositories (파일명은 snake_case: auth_router.py 등)
+  batch/      connectors / normalizers / sensing / targeting / briefing / population / geocoding
+              run_daily.py(07:30 SLA) · run_monthly.py(모집단) · geocoding/geocode_job.py(10분)
+  common/     config(.env + config/pipeline.toml), db/pool, geo, snapshot_store, schemas(Pydantic)
+  config/pipeline.toml   판정 구조 설정(TOP 20·탐색 슬롯·업종×신호 적합도·소스 엔드포인트)
+  database/   schema.sql(전용 스키마 cmaker) · seed.sql(지점·계정·임계치 초기값)
+  scripts/load_dev_fixture.py   APP_ENV=dev 전용 가상 데이터
+  tests/      TEST-01(승격) · TEST-02(배제·스코어링) · TEST-03(그라운딩 회귀셋)
+frontend/     React 19 + TS + Zustand + TanStack Query (vite dev 서버가 /api → 127.0.0.1:8000 프록시)
+deploy/       nginx · systemd(api/frontend) · cron
+```
+
+### 명령 (저장소 루트, Windows는 `.venv\Scripts\python.exe`)
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r backend/requirements-dev.txt
+.venv/bin/python -m pytest                     # 백엔드 단위 테스트
+.venv/bin/ruff check backend                   # 린트
+psql -U myapp_user -d myapp_db -f backend/database/schema.sql
+psql -U myapp_user -d myapp_db -v initial_password='<초기 비밀번호>' -f backend/database/seed.sql
+APP_ENV=dev .venv/bin/python -m backend.scripts.load_dev_fixture   # 로컬 전용
+APP_ENV=dev .venv/bin/python -m backend.scripts.clear_dev_fixture [--dry-run]   # 픽스처·파생 배치 결과 제거
+.venv/bin/python -m backend.batch.run_daily [--date YYYY-MM-DD]
+.venv/bin/python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+cd frontend && npm ci && npm run build && npm run lint      # 개발: npm run dev
+```
+
+### 구현상 결정 (문서와 다른 점)
+
+- LLM은 브리프 **화법만** 쓴다. 선정 사유 사실 문장·출처 태그·체크리스트는 결정론적으로 생성한다. 화법은 `citation_guard`가 근거 없는 수치·금칙 표현·상품 용어를 차단한다(10번 문서 §8.3의 "후처리 검증 없음" 대신 §0.3 원칙을 따름). 게이트웨이 미설정·장애 시 정형 인사 화법(TEMPLATE)으로 대체한다.
+- 상품 안내 문장은 RAG가 없는 MVP에서 전부 차단한다(§0.8).
+- 탐색 슬롯은 구조만 두고 `exploration_enabled=false`(Phase 2 가동, §9).
+- `python-jose` 대신 `PyJWT`, pydantic 2.13(Python 3.14 호환), API DB 풀은 동기 `ConnectionPool`.
+- USER 테이블명은 예약어 회피로 `app_user`, 로그인 아이디 `username` 컬럼 추가. 비밀번호 평문 저장은 결정 문서를 따랐으며 운영 전 보안 검토가 필요하다.
+- 지하철 승하차(N-5)·긴급재난문자(N-2, Phase 3)·특일정보(REQ-10, Phase 2) 커넥터는 만들지 않았다. 지방행정 인허가 변동분 API(N-1)는 미신청이라 `pipeline.toml`의 `sources.PERMIT_DAILY.url`이 비어 있으며, 비어 있으면 전일 스냅샷 폴백으로 동작한다.

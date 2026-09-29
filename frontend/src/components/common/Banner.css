@@ -1,0 +1,61 @@
+/* 배너 — docs/9-style-guide.md §5.10 */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-3);
+}
+.banner--warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+.banner--info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+.banner__text {
+  flex: 1 1 320px;
+}
+.banner__action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* 배너 안 액션 버튼: 배경 없는 outline pill, 배너 글자색과 동일한 테두리 */
+.banner__action .btn--outline-pill {
+  background: transparent;
+  color: currentColor;
+  border-color: currentColor;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-4);
+}
+.banner__action .btn--outline-pill:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: currentColor;
+  border-color: currentColor;
+}
+.banner__action .btn--outline-pill:disabled {
+  color: var(--color-text-disabled);
+  border-color: var(--color-border);
+  background: transparent;
+}
+.banner__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+.banner__dismiss {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: currentColor;
+  font-size: var(--font-size-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

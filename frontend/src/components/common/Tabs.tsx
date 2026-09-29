@@ -11,11 +11,12 @@ interface TabsProps<T extends string> {
   items: TabItem<T>[];
   activeValue: T;
   onChange: (value: T) => void;
+  label?: string;
 }
 
-export function Tabs<T extends string>({ items, activeValue, onChange }: TabsProps<T>) {
+export function Tabs<T extends string>({ items, activeValue, onChange, label }: TabsProps<T>) {
   return (
-    <div className="tabs" role="tablist">
+    <div className="tabs" role="tablist" aria-label={label}>
       {items.map((item) => (
         <button
           key={item.value}
@@ -26,7 +27,7 @@ export function Tabs<T extends string>({ items, activeValue, onChange }: TabsPro
           onClick={() => onChange(item.value)}
         >
           {item.label}
-          {typeof item.count === 'number' ? ` ${item.count}` : ''}
+          {typeof item.count === 'number' && <span className="tab__count">{item.count}</span>}
         </button>
       ))}
     </div>

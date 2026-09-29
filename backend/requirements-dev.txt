@@ -1,0 +1,4 @@
+# 개발/검증 전용 의존성 (TEST-01~03 단위 테스트, TEST-07 ruff)
+-r requirements.txt
+pytest==9.1.1
+ruff==0.16.9

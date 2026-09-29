@@ -1,27 +1,23 @@
-// 태깅(TAG_FEEDBACK) API 클라이언트 (docs/4-project-principle.md §6, UC-09, VAL-06)
-//
-// ⚠ 실제 API 연동 지점: 백엔드 준비 후 mock 호출을
-// apiFetch<Recommendation>(`/recommendations/${recommendationId}/tag`, { method: 'POST', body: request })
-// 로 교체한다.
+// 태깅(TAG_FEEDBACK) API 클라이언트 (UC-09, VAL-06)
 
-import type { Recommendation, RejectedReason, TagStatus } from '../types/recommendation';
-import { mockUpdateTag } from './mockData';
+import type { RejectedReason, TagResult } from '../types/recommendation';
+import { apiFetch } from './client';
 
 export interface UpdateTagRequest {
-  recommendationId: string;
-  tagStatus: TagStatus;
+  recommendationId: number;
+  tagStatus: 'VISITED' | 'HOLD' | 'REJECTED';
   /** tagStatus가 REJECTED일 때만 필수 (VAL-06) */
   rejectedReason?: RejectedReason;
 }
 
-const MOCK_LATENCY_MS = 150;
-
-function delay<T>(value: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), MOCK_LATENCY_MS));
+export function updateTag(request: UpdateTagRequest): Promise<TagResult> {
+  return apiFetch<TagResult>(`/recommendations/${request.recommendationId}/tag`, {
+    method: 'POST',
+    body: { tagStatus: request.tagStatus, rejectedReason: request.rejectedReason ?? null },
+  });
 }
 
-export async function updateTag(request: UpdateTagRequest): Promise<Recommendation> {
-  // TODO(실제 API 연동): return apiFetch<Recommendation>(`/recommendations/${request.recommendationId}/tag`, { method: 'POST', body: request });
-  const updated = mockUpdateTag(request.recommendationId, request.tagStatus, request.rejectedReason);
-  return delay(updated);
+/** 태깅 되돌리기 — 미태깅 상태로 복귀 */
+export function revertTag(recommendationId: number): Promise<TagResult> {
+  return apiFetch<TagResult>(`/recommendations/${recommendationId}/tag`, { method: 'DELETE' });
 }

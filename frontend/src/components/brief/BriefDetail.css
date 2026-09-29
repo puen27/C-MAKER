@@ -1,76 +1,166 @@
+/* 상담 브리프 상세 — docs/8-wireframe.md §4 */
 .brief-detail__back {
-  background: none;
-  border: none;
-  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  padding: 0;
+  text-decoration: none;
   margin-bottom: var(--space-4);
 }
+.brief-detail__back:hover,
+.brief-detail__back:focus-visible {
+  color: var(--color-primary);
+}
 
-.brief-detail__title {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
+.brief-detail__header {
   margin-bottom: var(--space-5);
 }
-
-.brief-detail__distance {
+.brief-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  font-weight: var(--font-weight-regular);
+}
+.brief-detail__address::before {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin-right: var(--space-3);
+  background: var(--color-border);
+  vertical-align: -1px;
 }
 
-.brief-detail__section {
-  margin-bottom: var(--space-6);
+/* 읽을 것(좌) · 할 일(우) */
+.brief-detail__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-5);
+  align-items: start;
+}
+.brief-detail__sheet,
+.brief-detail__panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+.brief-detail__sheet {
+  padding: var(--space-5) var(--space-6);
+}
+.brief-detail__aside {
+  position: sticky;
+  top: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.brief-detail__panel {
+  padding: var(--space-4) var(--space-5) var(--space-5);
 }
 
-.brief-detail__section h2 {
-  font-size: var(--font-size-md);
+.brief-detail__section + .brief-detail__section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+.brief-detail__heading {
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
-  margin-bottom: var(--space-2);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-3);
 }
 
+.brief-detail__facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  /* 한글 본문 기준 한 줄 45자 안팎 */
+  max-width: 45em;
+}
 .brief-detail__fact {
   font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   color: var(--color-text);
 }
-
+/* 출처 태그는 문장 바로 아래 줄에 둔다 — 문장 길이와 무관하게 같은 자리에서 확인할 수 있게 */
 .brief-detail__source-tag {
+  display: block;
+  margin-top: 2px;
   font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
   color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
-  margin-left: var(--space-1);
 }
 
+/* 화법은 실제로 소리 내어 읽는 문장이라 인용 블록으로 구분한다 */
 .brief-detail__script {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-alt);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
+}
+.brief-detail__script p {
+  margin: 0;
+}
+.brief-detail__script p + p {
+  margin-top: var(--space-2);
+}
+
+.brief-detail__muted {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: var(--space-2) 0 0;
 }
 
 .brief-detail__checklist {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
-
-.brief-detail__checklist li {
-  font-size: var(--font-size-md);
+.brief-detail__checklist li + li {
+  border-top: 1px solid var(--color-border);
+}
+.brief-detail__check {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.brief-detail__check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+.brief-detail__check input:checked + span {
+  color: var(--color-text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-disabled);
 }
 
-.brief-detail__actions {
-  margin-top: var(--space-6);
+@media (max-width: 1279px) {
+  .brief-detail__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .brief-detail__aside {
+    position: static;
+  }
+  .brief-detail__sheet {
+    padding: var(--space-4) var(--space-5);
+  }
 }

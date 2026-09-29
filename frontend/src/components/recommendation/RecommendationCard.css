@@ -1,57 +1,102 @@
+/* 추천 카드 — docs/9-style-guide.md §5.4 */
 .rec-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'rank body score'
+    '.    actions actions';
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
   padding: var(--space-4);
-  margin-bottom: var(--space-3);
   cursor: pointer;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
+}
+.rec-card:hover {
+  border-color: var(--color-text-disabled);
+}
+.rec-card:hover .rec-card__name {
+  color: var(--color-primary);
 }
 
+/* 태깅 완료 카드는 흐리게 하되 목록에서 사라지지 않는다(재태깅 가능성 유지) */
 .rec-card.is-tagged {
   opacity: 0.75;
+}
+.rec-card.is-tagged:hover,
+.rec-card.is-tagged:focus-within {
+  opacity: 1;
+}
+
+.rec-card__rank {
+  grid-area: rank;
+}
+
+.rec-card__body {
+  grid-area: body;
+  min-width: 0;
 }
 
 .rec-card__header {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-1);
-}
-
-.rec-card__rank {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
-  min-width: 20px;
+  min-height: 32px;
 }
 
 .rec-card__name {
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text);
-  flex: 1;
+  text-decoration: none;
+  line-height: var(--line-height-tight);
+}
+.rec-card__name:hover,
+.rec-card__name:focus-visible {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .rec-card__score {
+  grid-area: score;
+  align-self: start;
+  line-height: 32px;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .rec-card__reason {
   font-size: var(--font-size-sm);
   color: var(--color-text);
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-1) 0 0;
 }
 
 .rec-card__source-tag {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
-  margin-left: var(--space-1);
+  margin-left: var(--space-2);
+  white-space: nowrap;
 }
 
 .rec-card__actions {
+  grid-area: actions;
   display: flex;
+  cursor: default;
+}
+
+.rec-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

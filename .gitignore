@@ -1,1 +1,11 @@
 .env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# 배치 원본 파일 보관·로컬 로그 (재현성 원본은 서버 스토리지에 보관, 저장소에 올리지 않는다)
+data/

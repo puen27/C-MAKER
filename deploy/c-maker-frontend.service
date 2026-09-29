@@ -1,0 +1,14 @@
+# /etc/systemd/system/c-maker-frontend.service  (docs/10-implementation-guide.md §12.2)
+# ※ nvm 환경에서는 `which serve` 결과로 ExecStart 경로를 교체한다.
+[Unit]
+Description=C-MAKER Frontend (serve)
+After=network.target
+
+[Service]
+User=ubuntu
+ExecStart=/home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l tcp://127.0.0.1:8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

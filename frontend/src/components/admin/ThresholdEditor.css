@@ -1,0 +1,145 @@
+/* 임계치 관리 — docs/9-style-guide.md §5.2 입력창, §5.9 데이터 테이블 */
+.threshold-editor {
+  margin-bottom: var(--space-6);
+}
+.threshold-editor__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  margin: 0 0 var(--space-3);
+}
+.threshold-editor__count {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.table th {
+  background: var(--color-surface-alt);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  text-align: left;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.table td {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  vertical-align: top;
+}
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+.threshold-editor__col-item {
+  width: 38%;
+}
+.threshold-editor__col-value {
+  width: 32%;
+}
+.threshold-editor__label {
+  font-weight: var(--font-weight-bold);
+}
+.threshold-editor__description {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: var(--space-1) 0 0;
+}
+.threshold-editor__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.threshold-editor__input {
+  width: 104px;
+  height: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.threshold-editor__unit {
+  color: var(--color-text-secondary);
+  min-width: 36px;
+}
+.threshold-editor__error {
+  font-size: var(--font-size-xs);
+  color: var(--color-danger);
+  margin: var(--space-1) 0 0;
+}
+.threshold-editor__saved {
+  font-size: var(--font-size-xs);
+  color: var(--color-success);
+  margin: var(--space-1) 0 0;
+}
+.threshold-editor__meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.threshold-editor__history-toggle {
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+.threshold-editor__history-toggle[aria-expanded='true'] {
+  color: var(--color-primary);
+}
+.threshold-editor__history-toggle:hover,
+.threshold-editor__history-toggle:focus-visible {
+  color: var(--color-primary);
+}
+.threshold-editor__history-row td {
+  background: var(--color-surface-alt);
+  padding: var(--space-3) var(--space-4);
+}
+.threshold-editor__meta div + div {
+  color: var(--color-text);
+}
+.threshold-editor__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.threshold-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+.threshold-history li {
+  display: flex;
+  gap: var(--space-3);
+}
+.threshold-history__when {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.threshold-history__change {
+  font-family: var(--font-family-mono);
+}

@@ -1,0 +1,152 @@
+# C-MAKER 배치 파이프라인 설정 (CLAUDE.md §2: 판정 관련 값은 코드에 하드코딩하지 않는다)
+#
+# - 본부가 UI에서 조정하는 값(신호별 임계치, 이벤트 쿨다운/상한, 접촉 쿨다운, 상권사유비율 상한)은
+#   여기가 아니라 DB THRESHOLD_CONFIG에 있다(REQ-14, UC-15).
+# - 여기 있는 값은 제품 규칙(TOP 20, 탐색 슬롯 3건)과 구조적 매핑(업종×신호 적합도, 지역 코드)이다.
+
+[recommendation]
+top_n = 20                    # RULE-TARGET-03: 탐색 슬롯을 포함한 총 20건
+exploration_slots = 3         # RULE-TARGET-03
+exploration_enabled = false   # CLAUDE.md §9 — 탐색 슬롯 가동은 Phase 2. false면 3자리를 일반 후보로 채운다
+min_sample_for_update = 30    # RULE-LEARN-03 / CONST-09
+
+[scoring]
+proximity_min = 0.5           # 근접도: 지점 위치 1.0 → 담당 반경 경계 0.5 (선형)
+industry_fit_match = 1.2      # 규모적합도: 지점 주력업종(primary_industry_tags)과 일치
+industry_fit_default = 1.0
+default_weight = 1.0          # SIGNAL_WEIGHT 행이 없을 때의 w₀
+event_lookback_days = 7       # 스코어링에 반영하는 활성 이벤트의 최근 신호 기준 기간(일)
+
+[normalization]               # 신호 강도 sᵢ(0~1) 정규화 포화점 — 임계치(THRESHOLD_CONFIG)와 독립
+area_openings_saturation = 10       # 반경 내 신규 개업 10건/일 이상이면 1.0
+industry_openings_saturation = 5    # 같은 업종 신규 개업 5건/일 이상이면 1.0
+fx_change_saturation_pct = 3.0      # 환율 일변동 3% 이상이면 1.0
+oil_change_saturation_pct = 3.0     # 유가 일변동 3% 이상이면 1.0
+warning_intensity_advisory = 0.6    # 기상 주의보
+warning_intensity_alert = 1.0       # 기상 경보
+new_opening_max_age_days = 90       # 인허가일자가 이 기간 이내면 신규 개업 사업체 신호 강도 감쇠 기준
+
+[freshness]                   # RULE-TARGET-05 — 초기값 균등(2-prd.md 10장 미해결 이슈 9)
+weight_license = 0.3333       # ① 인허가 경과일 감쇠
+weight_no_contact = 0.3333    # ② 최근 미노출(미접촉) 기간
+weight_signal_fit = 0.3334    # ③ 업종×당일신호 적합도
+license_decay_days = 180      # ① exp(-경과일/180)
+no_contact_saturation_days = 30
+
+[exclusion.reject_exclusion_days]   # RULE-TARGET-01 부적합 사유별 배제 기간(일), 0 = 영구
+ALREADY_CUSTOMER = 0          # 이미 거래중 — 영구
+NOT_TARGET = 0                # 대상 아님 — 영구
+INFO_ERROR = 90               # 정보 오류 — 한시(다음 모집단 갱신 이후 재검토)
+UNREACHABLE = 0               # 접촉 불가 — 수신거부로 간주, 영구(RULE-TARGET-01 부록 C)
+
+[briefing]
+max_script_sentences = 3      # CLAUDE.md §3: 화법 3문장 이내
+# RULE-BRIEF-03 금칙 표현 — 포함 시 해당 문장을 차단한다
+forbidden_expressions = [
+  "확정 수익", "확정수익", "원금 보장", "원금보장", "원금 손실 없", "손실 없는", "손실이 없",
+  "무위험", "100% 보장", "보장된 수익", "수익 보장", "수익을 보장", "무조건", "반드시 수익",
+]
+# CLAUDE.md §0.8: 상품 안내는 상품설명서 RAG 인용이 필수. MVP에는 RAG가 없으므로(10번 문서 §16)
+# 상품·여신 관련 문장은 화법에서 차단한다.
+product_terms = ["대출", "예금", "적금", "펀드", "보험", "금리", "한도", "이자율", "수익률"]
+default_checklist = ["사업자등록증 확인", "현재 거래 은행 확인", "카드단말기 사용 현황 확인"]
+greeting_org_name = "○○은행"   # 화법 인사말의 기관명 — 실제 은행명은 배포 환경에서 설정
+max_output_tokens = 400
+
+# ─────────────────────────── 소스 ───────────────────────────
+# display_name은 출처 태그 [소스명·기준일]의 소스명으로 그대로 노출된다(RULE-BRIEF-01).
+# expected_lag_days: 정상 수집 시 기준일이 오늘보다 며칠 전인지. 이보다 더 오래된 스냅샷이면 지연 배지(RULE-SENSE-04).
+
+[sources.PERMIT_DAILY]        # 지방행정 인허가 변동분 (N-1) — 신규 개업·폐업 1차 신호
+display_name = "지방행정인허가"
+# ⚠ N-1 활용신청(data.go.kr) 승인 후 엔드포인트를 입력한다. 비어 있으면 수집을 건너뛰고 전일 스냅샷으로 폴백한다.
+#   응답 필드는 구 localdata 표준(mgtNo, bplcNm, trdStateGbn, apvPermYmd, x, y …)을 기준으로 파싱한다.
+url = ""
+expected_lag_days = 2         # REQ-02: 인허가 영업상태는 D-2 기준
+options = { page_size = 500, new_opening_window_days = 7 }
+
+[sources.PERMIT_FULL]         # 지방행정 인허가 전수 파일 (F-2) — 월간 모집단
+display_name = "지방행정인허가"
+expected_lag_days = 45
+
+[sources.SBIZ_STORE]          # 소진공 상가(상권)정보 (S-1) — 월간 모집단(WGS84)
+display_name = "소상공인상가정보"
+url = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInRadius"
+expected_lag_days = 120
+options = { page_size = 1000 }
+
+[sources.NTS_STATUS]          # 국세청 사업자등록 상태조회 (S-8) — 보완 검증 전용(신규 개업 탐지 금지)
+display_name = "국세청사업자상태"
+url = "https://api.odcloud.kr/api/nts-businessman/v1/status"
+options = { chunk_size = 100 }
+
+[sources.KMA_WARNING]         # 기상청 기상특보 (S-2) — 발효/해제만 신호
+display_name = "기상청특보"
+url = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList"
+expected_lag_days = 0
+
+[sources.ECOS_FX]             # 한국은행 ECOS 원/달러 매매기준율 (일)
+display_name = "한국은행ECOS"
+url = "https://ecos.bok.or.kr/api/StatisticSearch"
+expected_lag_days = 1
+options = { stat_code = "731Y001", item_code = "0000001", cycle = "D", lookback_days = 10 }
+
+[sources.OPINET_PRICE]        # 오피넷 시도별 평균 유가 (일)
+display_name = "오피넷"
+url = "https://www.opinet.co.kr/api/avgSidoPrice.do"
+expected_lag_days = 0
+options = { prodcd = "B027" }
+
+[sources.VWORLD_GEOCODER]     # 지점 주소 지오코딩 (RULE-BRANCH-03)
+display_name = "VWorld지오코더"
+url = "https://api.vworld.kr/req/address"
+
+# ─────────────────── 업종×신호 적합도 (0~1) ───────────────────
+# 키는 업종명에 포함되는 키워드, "*"는 모든 업종 기본값. RULE-TARGET-05 ③과
+# 업종 단위(INDUSTRY) 거시 신호의 적용 대상 판단에 쓴다.
+[industry_signal_fit]
+NEW_BUSINESS_OPENING = { "*" = 1.0 }
+INDUSTRY_NEW_OPENINGS = { "*" = 0.7 }
+AREA_NEW_OPENINGS = { "*" = 0.5 }
+FX_DAILY_CHANGE = { "여행" = 1.0, "무역" = 1.0, "수입" = 1.0, "수출" = 1.0, "환전" = 1.0, "면세" = 1.0, "숙박" = 0.6 }
+OIL_PRICE_CHANGE = { "주유" = 1.0, "운송" = 1.0, "화물" = 1.0, "자동차" = 0.8, "택배" = 0.8, "정비" = 0.8 }
+WEATHER_WARNING = { "편의점" = 0.8, "약국" = 0.6, "카페" = 0.6, "음식" = 0.5, "세탁" = 0.5, "*" = 0.2 }
+
+# ─────────────────── 지역 코드 매핑 ───────────────────
+[kma_station_by_sido]         # 기상특보 발표 관서(stnId)
+"서울" = 109
+"인천" = 109
+"경기" = 109
+"강원" = 105
+"충북" = 131
+"대전" = 133
+"세종" = 133
+"충남" = 133
+"전북" = 146
+"광주" = 156
+"전남" = 156
+"대구" = 143
+"경북" = 143
+"부산" = 159
+"울산" = 159
+"경남" = 159
+"제주" = 184
+
+[opinet_sido_code]
+"서울" = "01"
+"경기" = "02"
+"강원" = "03"
+"충북" = "04"
+"충남" = "05"
+"전북" = "06"
+"전남" = "07"
+"경북" = "08"
+"경남" = "09"
+"부산" = "10"
+"제주" = "11"
+"대구" = "14"
+"인천" = "15"
+"광주" = "16"
+"대전" = "17"
+"울산" = "18"
+"세종" = "19"

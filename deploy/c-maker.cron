@@ -1,0 +1,14 @@
+# /etc/cron.d/c-maker  (docs/10-implementation-guide.md §10.3)
+#   sudo cp deploy/c-maker.cron /etc/cron.d/c-maker && sudo chmod 644 /etc/cron.d/c-maker
+# 서버 시간대가 Asia/Seoul이 아니면 CRON_TZ로 한국 시간을 지정한다.
+CRON_TZ=Asia/Seoul
+SHELL=/bin/bash
+
+# 일간 배치 — 매일 06:00 (07:30 SLA)
+0 6 * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_daily >> /var/log/c-maker/cron-daily.log 2>&1
+
+# 월간 모집단 적재 — 매월 1일 01:00
+0 1 1 * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_monthly >> /var/log/c-maker/cron-monthly.log 2>&1
+
+# 지점 좌표 지오코딩 — 10분마다
+*/10 * * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.geocoding.geocode_job >> /var/log/c-maker/cron-geocode.log 2>&1

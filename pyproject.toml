@@ -1,0 +1,19 @@
+# C-MAKER 저장소 공통 도구 설정 (ruff, pytest)
+# 백엔드 패키지는 저장소 루트에서 `python -m backend.<모듈>` 형태로 실행한다.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+extend-exclude = ["frontend", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 의존성 주입 관용구(Depends/Query 기본값)는 B008 예외로 둔다.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.params.Depends", "fastapi.params.Query"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+addopts = "-q"

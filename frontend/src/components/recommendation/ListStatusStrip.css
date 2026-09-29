@@ -1,0 +1,29 @@
+/* 오늘 명부 현황 스트립 — 칸 모양·색은 RankChip.css를 따른다 */
+.list-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+}
+.list-strip__cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.list-strip__cell.rank-chip {
+  width: 28px;
+  height: 28px;
+  font-size: var(--font-size-xs);
+  cursor: default;
+}
+.list-strip__summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.list-strip__summary strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-bold);
+}
