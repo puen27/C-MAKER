@@ -956,6 +956,40 @@ cd frontend && npm ci && npm run build
 | **5** | 프론트엔드 | SC-01~09 시나리오 수동 확인 |
 | lint | 백엔드 ruff + mypy, 프론트엔드 ESLint |
 
+### 15.1 실행 방법
+
+테스트·lint 의존성은 `backend/requirements-dev.txt`에 분리돼 있다(운영 실행에는 불필요). 설정은 저장소 루트 `pyproject.toml`의 `[tool.pytest.ini_options]`·`[tool.ruff]`를 따른다.
+
+```bash
+cd /home/ubuntu/c-maker
+source .venv/bin/activate
+pip install -r backend/requirements-dev.txt   # -r requirements.txt를 자체 포함한다
+
+python -m pytest          # testpaths=backend/tests, addopts=-q
+python -m ruff check backend
+```
+
+> **배포 시 누락 주의.** §13의 초기 배포 절차는 `requirements.txt`만 설치하므로, EC2 venv에 pytest·ruff가 들어가지 않는다. 실제로 2026-09-30까지 EC2에서 테스트가 한 번도 실행되지 않은 상태였다(`No module named pytest`). 서버에서 검증을 돌릴 계획이면 `requirements-dev.txt`도 설치한다.
+
+> 1~3순위 테스트는 DB·외부 API를 쓰지 않는 순수 단위 테스트다. 운영 DB에 붙은 서버에서도 안전하게 돌릴 수 있다.
+
+**현행 결과 (2026-09-30, EC2 Python 3.14.4 / pytest 9.1.1 / ruff 0.16.9)**
+
+```
+85 passed, 1 warning          # python -m pytest        (exit 0)
+All checks passed!            # ruff check backend      (exit 0)
+```
+
+| 테스트 파일 | 검증 대상 |
+|---|---|
+| `test_event_promoter.py` | 이벤트 승격 판정, 지점당 일일 상한 (RULE-SENSE-01/02) |
+| `test_targeting.py` | 배제·스코어링 (RULE-TARGET-01/02) |
+| `test_briefing.py` | 브리프 그라운딩·금칙 표현 (RULE-BRIEF-02/03) |
+| `test_normalizers.py` | 신호 정규화 |
+| `test_api_rules.py` | 임계치 검증(VAL-05), 태깅(VAL-06), 공통 에러 형식, CSV 수식 주입 방지 |
+
+경고 1건은 `starlette/testclient.py`의 `anyio.abc.BlockingPortal` DeprecationWarning으로, 서드파티 내부 코드에서 발생하며 우리 코드와 무관하다.
+
 ---
 
 ## 16. 기존 설계 문서(1~9)와의 차이
