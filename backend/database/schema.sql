@@ -65,6 +65,11 @@ CREATE INDEX IF NOT EXISTS idx_branch_history_branch ON branch_history(branch_id
 
 -- CONST-19: INSERT/UPDATE 시 effective_from을 "다음 날 07:30(KST)"으로 설정하고,
 -- UPDATE로 추적 대상 값이 바뀌면 변경 전 값을 branch_history로 옮긴다.
+--
+-- SET search_path (함수 정의 하단): 함수 본문의 미수식 테이블명(branch_history)이 항상 cmaker로
+-- 해석되도록 고정한다. 이 지정이 없으면 호출 세션의 search_path를 따르므로, 운영자가 psql에서
+-- 기본 search_path("$user", public)로 접속해 UPDATE하면 공유 DB의 public.branch_history를
+-- 가리켜 실패한다(실제 발생). 앱 커넥션은 pool.py가 -c search_path=cmaker로 열어 무관했다.
 CREATE OR REPLACE FUNCTION branch_apply_effective_from() RETURNS trigger AS $$
 DECLARE
     next_effective TIMESTAMPTZ :=
@@ -95,7 +100,8 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+   SET search_path = cmaker, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_branch_effective_from ON branch;
 CREATE TRIGGER trg_branch_effective_from
