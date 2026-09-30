@@ -346,15 +346,16 @@ def finish_run(
     params_snapshot: dict[str, Any],
     stage_stats: dict[str, Any],
     source_status: list[dict[str, Any]],
-) -> None:
-    conn.execute(
+) -> bool:
+    cursor = conn.execute(
         """
         UPDATE batch_run SET status = %s, completed_at = now(), failure_reason = %s,
                params_snapshot = %s::jsonb, stage_stats = %s::jsonb, source_status = %s::jsonb
-        WHERE id = %s
+        WHERE id = %s AND status = 'RUNNING'
         """,
         (status, failure_reason, _json(params_snapshot), _json(stage_stats), _json(source_status), run_id),
     )
+    return cursor.rowcount > 0
 
 
 def insert_audit(
@@ -389,10 +390,12 @@ def insert_audit(
 def load_cooldown_events(conn: psycopg.Connection, branch_id: int, since: date) -> list[ExistingEvent]:
     rows = conn.execute(
         """
-        SELECT id, signal_type, target_key, occurred_on
+        SELECT id, signal_type, target_key,
+               GREATEST(occurred_on, COALESCE(last_merged_on, occurred_on)) AS occurred_on
         FROM event
-        WHERE branch_id = %s AND status = 'ACTIVE' AND occurred_on >= %s
-        ORDER BY occurred_on DESC, id DESC
+        WHERE branch_id = %s AND status = 'ACTIVE'
+          AND GREATEST(occurred_on, COALESCE(last_merged_on, occurred_on)) >= %s
+        ORDER BY GREATEST(occurred_on, COALESCE(last_merged_on, occurred_on)) DESC, id DESC
         """,
         (branch_id, since),
     ).fetchall()
@@ -562,6 +565,38 @@ def branch_has_tagged_recommendations(conn: psycopg.Connection, branch_id: int, 
         (branch_id, day),
     ).fetchone()
     return row is not None
+
+
+def count_missing_branch_briefs(conn: psycopg.Connection, branch_id: int, day: date) -> int:
+    row = conn.execute(
+        """
+        SELECT count(*) AS missing_count
+        FROM recommendation r
+        LEFT JOIN brief b ON b.recommendation_id = r.id
+        WHERE r.branch_id = %s AND r.recommended_on = %s AND b.recommendation_id IS NULL
+        """,
+        (branch_id, day),
+    ).fetchone()
+    return int(row["missing_count"]) if row else 0
+
+
+def count_brief_completeness(conn: psycopg.Connection, recommendation_ids: list[int]) -> tuple[int, int]:
+    """새 추천 ID 집합과 BRIEF의 1:1 저장 여부를 같은 트랜잭션에서 검증한다."""
+    if not recommendation_ids:
+        return 0, 0
+    row = conn.execute(
+        """
+        SELECT count(DISTINCT r.id) AS recommendation_count,
+               count(DISTINCT b.recommendation_id) AS brief_count
+        FROM recommendation r
+        LEFT JOIN brief b ON b.recommendation_id = r.id
+        WHERE r.id = ANY(%s)
+        """,
+        (recommendation_ids,),
+    ).fetchone()
+    if row is None:
+        return 0, 0
+    return int(row["recommendation_count"]), int(row["brief_count"])
 
 
 def delete_recommendations(conn: psycopg.Connection, branch_id: int, day: date) -> int:

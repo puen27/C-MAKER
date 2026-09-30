@@ -59,11 +59,15 @@ def create_manual_run(conn: psycopg.Connection, user_id: int, target_date: date)
     return int(row["id"]) if row else None
 
 
-def mark_failed(conn: psycopg.Connection, run_id: int, reason: str) -> None:
-    conn.execute(
-        "UPDATE batch_run SET status = 'FAILED', completed_at = now(), failure_reason = %s WHERE id = %s",
+def mark_failed(conn: psycopg.Connection, run_id: int, reason: str) -> bool:
+    cursor = conn.execute(
+        """
+        UPDATE batch_run SET status = 'FAILED', completed_at = now(), failure_reason = %s
+        WHERE id = %s AND status = 'RUNNING'
+        """,
         (reason, run_id),
     )
+    return cursor.rowcount > 0
 
 
 def fail_stale(conn: psycopg.Connection, stale_minutes: int) -> int:

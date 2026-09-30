@@ -16,6 +16,7 @@ from backend.batch import batch_repository as repo
 from backend.batch.connectors.http_client import SourceFetchError
 from backend.batch.connectors.vworld_connector import geocode_address
 from backend.common.config import get_pipeline_config, get_settings
+from backend.common.db.advisory_lock import GEOCODE_LOCK_KEY, acquire_advisory_lock
 from backend.common.db.pool import close_pool, get_connection
 from backend.common.geo import to_wgs84
 from backend.common.log_setup import log_fields, setup_logging
@@ -56,8 +57,13 @@ def run() -> dict[str, int]:
 
 def main() -> int:
     try:
-        run()
-        return 0
+        logger = setup_logging("geocode")
+        with acquire_advisory_lock(GEOCODE_LOCK_KEY) as acquired:
+            if not acquired:
+                log_fields(logger, logging.WARNING, "중복 cron 실행으로 판단해 지오코딩을 건너뜁니다")
+                return 0
+            run()
+            return 0
     finally:
         close_pool()
 

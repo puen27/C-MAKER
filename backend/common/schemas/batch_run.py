@@ -37,7 +37,7 @@ class BatchTriggerResponse(ApiModel):
     already_running: bool
 
 
-SourceStatus = Literal["FRESH", "FALLBACK", "UNAVAILABLE", "SKIPPED"]
+SourceStatus = Literal["FRESH", "FALLBACK", "DEGRADED", "UNAVAILABLE", "SKIPPED"]
 
 
 class SourceFreshness(ApiModel):

@@ -33,16 +33,58 @@ def fetch_stores_in_radius(
         "type": "json",
     }
     items: list[dict[str, Any]] = []
-    total = 0
+    seen_ids: set[str] = set()
+    expected_total: int | None = None
+
     for page in range(1, _MAX_PAGES + 1):
-        payload = request_json("GET", url, params={**base_params, "pageNo": page, "serviceKey": service_key})
-        page_items, total = _extract_items(payload)
+        payload = request_json(
+            "GET",
+            url,
+            params={**base_params, "pageNo": page, "serviceKey": service_key},
+        )
+        page_items, page_total = _extract_items(payload)
+        if expected_total is None:
+            expected_total = page_total
+        elif page_total != expected_total:
+            raise SourceFetchError(
+                f"상가정보 totalCount가 페이지 사이에 변경되었습니다: "
+                f"first={expected_total}, page={page}, current={page_total}"
+            )
+
+        for item in page_items:
+            store_id = str(item.get("bizesId") or "").strip()
+            if store_id:
+                if store_id in seen_ids:
+                    raise SourceFetchError(f"상가정보 bizesId가 중복되었습니다: page={page}, bizesId={store_id}")
+                seen_ids.add(store_id)
         items.extend(page_items)
-        if not page_items or len(items) >= total:
-            break
-    return FetchResult(
-        payload={"items": items, "total_count": total},
-        request_params={**base_params, "url": url},
+
+        assert expected_total is not None
+        if len(seen_ids) > expected_total:
+            raise SourceFetchError(
+                f"상가정보 고유 bizesId 수가 totalCount를 초과했습니다: "
+                f"unique={len(seen_ids)}, total={expected_total}"
+            )
+        if len(seen_ids) == expected_total:
+            return FetchResult(
+                payload={
+                    "items": items,
+                    "complete": True,
+                    "unique_count": len(seen_ids),
+                    "total_count": expected_total,
+                    "pages_fetched": page,
+                },
+                request_params={**base_params, "url": url},
+            )
+        if not page_items:
+            raise SourceFetchError(
+                f"상가정보가 totalCount 도달 전에 빈 페이지를 반환했습니다: "
+                f"page={page}, unique={len(seen_ids)}, total={expected_total}"
+            )
+
+    raise SourceFetchError(
+        f"상가정보 페이지 상한({_MAX_PAGES}) 내에 전수를 수집하지 못했습니다: "
+        f"unique={len(seen_ids)}, total={expected_total}"
     )
 
 
@@ -53,7 +95,9 @@ def _extract_items(payload: Any) -> tuple[list[dict[str, Any]], int]:
     body = payload.get("body") or (payload.get("response") or {}).get("body") or {}
     code = str(header.get("resultCode", "00"))
     if code == "03":
-        return [], 0
+        raise SourceFetchError(
+            f"상가정보 API가 NO_DATA(resultCode=03)를 반환했습니다: {header.get('resultMsg')}"
+        )
     if code != "00":
         raise SourceFetchError(f"상가정보 API 오류: {header.get('resultMsg')}")
     items = body.get("items") or []
@@ -61,4 +105,14 @@ def _extract_items(payload: Any) -> tuple[list[dict[str, Any]], int]:
         items = items.get("item", [])
     if isinstance(items, dict):
         items = [items]
-    return list(items), int(body.get("totalCount") or len(items))
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise SourceFetchError("상가정보 items 형식이 올바르지 않습니다")
+
+    raw_total = body.get("totalCount")
+    try:
+        total = len(items) if raw_total in (None, "") else int(raw_total)
+    except (TypeError, ValueError) as exc:
+        raise SourceFetchError("상가정보 totalCount 형식이 올바르지 않습니다") from exc
+    if total < 0:
+        raise SourceFetchError("상가정보 totalCount는 음수일 수 없습니다")
+    return items, total

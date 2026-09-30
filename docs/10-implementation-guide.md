@@ -637,31 +637,52 @@ npm run build    # dist/ 생성
 ```
 06:00 시작
   │
-  ├─ connectors: 소스별 수집 + DATA_SOURCE_SNAPSHOT 적재
-  │   (장애 시 → 전일 스냅샷 폴백, RULE-SENSE-04)
+  ├─ 사전 확인: 효력 지점·좌표 보유 효력 지점이 0건이면 외부 호출 전 실패
   │
-  ├─ normalizers: SIGNAL 정규화 + scope 태깅
+  ├─ connectors: 소스별 수집 + DATA_SOURCE_SNAPSHOT 적재
+  │   (장애 시 → 소스별 최대 허용 나이 안의 최신 snapshot, 초과 시 UNAVAILABLE)
+  │
+  ├─ PERMIT/NTS 후처리 → normalizers: SIGNAL 정규화 + scope 태깅
   │
   ├─ sensing: 임계치 판정 → EVENT 승격
   │   쿨다운(14일) / 상한(8건) / 병합 처리
   │
-  ├─ targeting: 배제 → 스코어링 → TOP 20
+  ├─ targeting: 짧은 read planning transaction에서 배제·스코어링·TOP 20 확정
   │   Score = (Σwᵢ·sᵢ + R) × 근접도 × 규모적합도
   │   탐색 슬롯 3건 (톰슨 샘플링)
   │
-  ├─ briefing: LiteLLM Gateway 브리프 생성
-  │   프롬프트 엔지니어링 (Chat Completion)
+  ├─ briefing: DB transaction 밖에서 LiteLLM Gateway 호출
   │
-  └─ export: RECOMMENDATION + BRIEF DB 적재
+  └─ publish: 짧은 transaction에서 RECOMMENDATION + BRIEF 원자 적재 및 1:1 검증
 
 07:30 이전 완료 (P95 SLA)
 ```
 
-### 10.2 수동 재실행 (REQ-17)
+- 폴백 최대 나이는 `PERMIT_DAILY=3일`, `NTS_STATUS=1일`, `KMA_WARNING=1일`, `ECOS_FX=7일`, `OPINET_PRICE=2일`이다. 새 수집이 성공한 `FRESH`도 기대 기준일보다 오래되면 `delay_days`로 지연을 노출한다.
+- PERMIT/NTS 후처리는 각각 격리한다. 실패한 소스는 `UNAVAILABLE`로 낮추고 다른 처리를 계속한다. normalizer도 소스별로 격리하지만 실패 소스는 `DEGRADED`, 해당 지점은 실패로 기록되어 최종 배치는 `FAILED`가 된다.
+- 반복 이벤트의 cooldown은 최초 `occurred_on`이 아니라 `last_merged_on`을 포함한 최근 병합 활동일을 기준으로 계산한다.
+- 브리프 생성 또는 추천·브리프 1:1 검증이 최종 실패하면 publish transaction을 rollback해 기존 당일 명부를 보존한다.
 
-API 서버의 `batch.service.py`가 `subprocess.Popen`으로 `run_daily.py`를 별도 프로세스로 기동하고 즉시 응답한다. 프론트엔드는 `BATCH_RUN` 상태를 폴링해 완료를 감지한다.
+### 10.2 월간 모집단 배치 (`run_monthly.py`)
 
-### 10.3 cron 스케줄
+**SBIZ**는 페이지별 `totalCount` 일관성, `bizesId` 중복 없음, 전수 수집을 확인한 `complete=true` manifest만 허용한다. 모든 좌표 지점의 snapshot을 먼저 보존한 뒤 전역 `bizesId` 합집합을 만들고, 단일 transaction에서 upsert와 전역 누락 폐업 판정을 각각 한 번 수행한다. `NO_DATA`, 0건, invalid manifest/레코드/설정, 한 지점이라도 수집·snapshot 실패, 기존 정상 모집단 대비 **50% 초과** 감소는 fail-closed로 BUSINESS publish를 시작하지 않거나 전체 rollback한다(50% 이하는 허용).
+
+```toml
+min_population_records = 1
+max_population_drop_ratio = 0.5
+```
+
+**PERMIT_FULL**은 각 CSV를 SHA-256 기반 content-addressed 불변 archive에 원자 보관하고, inbox 원본이 아니라 그 archive를 실제 parse 입력으로 사용한다. 모든 파일의 BUSINESS 반영은 단일 transaction이므로 한 파일의 parse/DB 실패도 전체 PERMIT publish를 rollback한다. `PERMIT_FULL_DATA_DIR`가 설정됐는데 CSV가 0개면 실패하며, 미설정이면 승인 전 기존 정책대로 skip하고 `publish_complete=false`를 남긴다.
+
+### 10.3 수동 재실행 (REQ-17)
+
+API 서버의 `batch_service.py`가 `subprocess.Popen`으로 `run_daily.py`를 별도 프로세스로 기동하고 즉시 응답한다. daemon worker watcher는 자식 종료를 회수하고, 자식이 완료 상태를 남기지 않은 채 종료하면 아직 `RUNNING`인 수동 실행만 `FAILED`로 바꾸며 완료 감사를 같은 transaction에 남긴다. 완료 갱신은 `status='RUNNING'` 조건의 fencing으로 이미 확정된 terminal 상태를 덮어쓰지 않는다.
+
+상태 조회와 수동 실행 요청의 stale 정리는 일간·월간 공용 lock을 획득해 worker 부재를 확인한 경우에만 수행한다. lock이 busy면 수동 요청은 `BATCH_RUNNING`을 반환한다. 프론트엔드는 `BATCH_RUN` 상태를 폴링해 완료를 감지한다.
+
+### 10.4 cron 스케줄
+
+일간과 월간은 실행 전체에 같은 **PostgreSQL session advisory lock**을 사용해 데이터 변경을 직렬화하고, 지오코딩은 별도 lock을 사용한다. 공용 lock이 busy면 예약 일간·월간은 실제 처리를 시작하지 않고 종료한다. 예약 일간의 stale 정리도 공용 lock 획득 후에만 수행한다.
 
 > **현행 확인 (2026-09-30)**: `/etc/cron.d/c-maker`로 등록 완료. 저장소의 `deploy/c-maker.cron`이 기준 파일이다.
 
@@ -711,7 +732,13 @@ SHELL=/bin/bash
 */10 * * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.geocoding.geocode_job >> /var/log/c-maker/cron-geocode.log 2>&1
 ```
 
-리다이렉트 대상이 `cron-*.log`인 이유는 §10.4를 참고한다. `LOG_DIR`이 설정되면 배치가 직접 `daily.log`·`monthly.log`·`geocode.log`에 쓰기 때문에, cron 리다이렉트를 같은 이름으로 두면 한 파일에 두 경로가 섞인다.
+> [!WARNING]
+> **알려진 운영 residual**
+> - 월간 배치가 06:00까지 공용 lock을 점유하면 예약 일간은 자동 재시도 없이 종료된다. 월간 완료 후 일간을 수동 재실행한다.
+> - `PERMIT_FULL_DATA_DIR` 미설정 시 월간은 해당 소스를 skip하고 `publish_complete=false`로 정상 종료할 수 있다.
+> - 태그 갱신이 동시에 경합하면 한 요청이 실패할 수 있으므로 클라이언트가 상태를 다시 조회해야 한다.
+
+리다이렉트 대상이 `cron-*.log`인 이유는 §10.5를 참고한다. `LOG_DIR`이 설정되면 배치가 직접 `daily.log`·`monthly.log`·`geocode.log`에 쓰기 때문에, cron 리다이렉트를 같은 이름으로 두면 한 파일에 두 경로가 섞인다.
 
 **등록 확인**
 
@@ -720,10 +747,11 @@ sudo journalctl -u cron --since '-15min' | grep CMD    # 실행 이력
 tail -5 /var/log/c-maker/geocode.log                   # 10분 주기 잡이 가장 먼저 찍힌다
 ```
 
-### 10.4 배치 로그
+### 10.5 배치 로그
 
 Python `logging` 모듈로 구조화 로그 (OPS-08):
 - 기록 항목: 단계별 처리 건수, 소요시간, 실패 소스명
+- 예약 일간의 07:30 SLA 판정은 `BATCH_RUN.stage_stats.sla`에 `applicable`, `deadline`, `finished_at`, `met`, `missed_by_seconds`로 저장하며, 미달 시 `SLA_MISSED` ERROR 로그를 남긴다. 수동 실행은 `applicable=false`다.
 - 타임스탬프는 `log_setup.py`가 **UTC로 고정**해 찍는다(`datetime.fromtimestamp(record.created, UTC)`). 서버 타임존을 KST로 바꿔도 로그의 `ts`는 `+00:00`을 유지하므로 과거 로그와 형식이 섞이지 않는다.
 
 `.env`의 `LOG_DIR` 설정에 따라 출력 위치가 갈린다.
@@ -733,7 +761,7 @@ Python `logging` 모듈로 구조화 로그 (OPS-08):
 | 설정됨 (예: `/var/log/c-maker`) | `<LOG_DIR>/<name>.log`에 **파일로만** 쓴다 — `daily.log`, `monthly.log`, `geocode.log`, `api.log` |
 | 비어 있음 | stdout (cron 리다이렉트·journald가 수집) |
 
-> `LOG_DIR`이 설정된 상태에서는 배치가 이미 `daily.log`에 직접 쓰므로, cron 리다이렉트는 **다른 이름**(`cron-daily.log`)으로 둔다(§10.3). 같은 이름을 쓰면 한 파일에 두 경로가 섞인다. `cron-*.log`에는 정상 동작 시 아무것도 남지 않고, 파이썬이 뜨기 전에 죽는 경우(경로 오류, venv 누락 등)의 stderr만 잡힌다.
+> `LOG_DIR`이 설정된 상태에서는 배치가 이미 `daily.log`에 직접 쓰므로, cron 리다이렉트는 **다른 이름**(`cron-daily.log`)으로 둔다(§10.4). 같은 이름을 쓰면 한 파일에 두 경로가 섞인다. `cron-*.log`에는 정상 동작 시 아무것도 남지 않고, 파이썬이 뜨기 전에 죽는 경우(경로 오류, venv 누락 등)의 stderr만 잡힌다.
 
 ```bash
 sudo mkdir -p /var/log/c-maker
@@ -746,7 +774,7 @@ sudo chown ubuntu:ubuntu /var/log/c-maker
 
 | 경로 | 호출 주체 | 프로토콜 | 인증 | 용도 | 장애 대응 |
 |---|---|---|---|---|---|
-| **공공데이터 API** | 배치 connectors | HTTPS (443) | API Key (.env) | 신호 수집, 모집단 적재, 사업자 검증 | 전일 스냅샷 폴백 (RULE-SENSE-04) |
+| **공공데이터 API** | 배치 connectors | HTTPS (443) | API Key (.env) | 신호 수집, 모집단 적재, 사업자 검증 | 일간은 소스별 최대 허용 나이 내 snapshot 폴백, 월간은 완전성 검증 실패 시 fail-closed |
 | **PostgreSQL** | API + 배치 | TCP (5432, localhost) | scram-sha-256 | 전 레이어 CRUD | 커넥션 풀 재시도 |
 | **LiteLLM Gateway** | 배치 briefing | HTTPS (443) | API Key | 브리프 생성 (RULE-BRIEF) | 재시도 + 타임아웃 |
 
@@ -981,7 +1009,7 @@ python -m ruff check backend
 **현행 결과 (2026-09-30, EC2 Python 3.14.4 / pytest 9.1.1 / ruff 0.16.9)**
 
 ```
-85 passed, 1 warning          # python -m pytest        (exit 0)
+174 passed, 1 warning         # python -m pytest        (exit 0)
 All checks passed!            # ruff check backend      (exit 0)
 ```
 
@@ -992,6 +1020,9 @@ All checks passed!            # ruff check backend      (exit 0)
 | `test_briefing.py` | 브리프 그라운딩·금칙 표현 (RULE-BRIEF-02/03) |
 | `test_normalizers.py` | 신호 정규화 |
 | `test_api_rules.py` | 임계치 검증(VAL-05), 태깅(VAL-06), 공통 에러 형식, CSV 수식 주입 방지 |
+| `test_batch_execution.py` | advisory lock, stale 정리, worker watcher, 상태 fencing·경합·freshness |
+| `test_daily_batch_safety.py` | bounded fallback, 후처리·normalizer 격리, LLM transaction 경계, fail-fast, cooldown, SLA |
+| `test_monthly_batch_safety.py` | SBIZ·PERMIT fail-closed, content-addressed archive, 모집단 감소율 guard |
 
 경고 1건은 `starlette/testclient.py`의 `anyio.abc.BlockingPortal` DeprecationWarning으로, 서드파티 내부 코드에서 발생하며 우리 코드와 무관하다.
 
@@ -1026,7 +1057,7 @@ All checks passed!            # ruff check backend      (exit 0)
 | 4 | ~~LiteLLM Gateway 인증키 형식~~ | ✅ **해소(2026-09-30)** — Virtual Key(`sk-...`)를 `Authorization: Bearer`로 전송. 실제 호출 성공 | — |
 | 5 | ~~LLM 모델 확정~~ | ✅ **해소(2026-09-30)** — `claude-opus-5` | 제공 모델 목록은 §8.1 |
 | 6 | ~~UC-07 "브리프 1건 5초" 미달성~~ | ✅ **해소(2026-09-30)** — EC2 실측 median 3.77초로 충족(§8.5). 개발 PC 수치(7.4초)로 인한 오판이었다 | 07:30 전체 SLA는 TOP20 × 지점 수로 별도 측정 필요 |
-| 7 | 07:30 배치 전체 SLA | 미측정 | 브리프 1건은 확인. 파일럿 지점 수 확정 후 `run_daily.py` 전체 실행 시간 측정 |
+| 7 | 07:30 배치 전체 SLA | 계측 구현·P95 미측정 | 예약 실행별 결과는 `stage_stats.sla`에 저장됨. 파일럿 지점 수 확정 후 전체 실행 P95 측정 |
 
 ### 17.1 해소된 인프라 사항 (2026-09-29)
 

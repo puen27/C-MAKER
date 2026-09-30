@@ -55,12 +55,14 @@ from backend.common.config import (
     get_settings,
     today_kst,
 )
+from backend.common.db.advisory_lock import BATCH_MUTATION_LOCK_KEY, acquire_advisory_lock
 from backend.common.db.pool import close_pool, get_connection
 from backend.common.geo import bounding_box, extract_sido, haversine_km
 from backend.common.log_setup import log_fields, setup_logging
 from backend.common.schemas.branch import BranchContext
 from backend.common.schemas.brief import BriefContent, BriefInput
 from backend.common.schemas.event import SignalDecision
+from backend.common.schemas.recommendation import RankedRecommendation
 from backend.common.schemas.signal import SignalDraft
 from backend.common.snapshot_store import find_latest_snapshot, save_snapshot
 
@@ -76,13 +78,14 @@ NTS_STATUS_MAP = {"01": "정상", "02": "휴업", "03": "폐업"}
 @dataclass
 class SourceOutcome:
     source_name: str
-    status: str  # FRESH / FALLBACK / UNAVAILABLE / SKIPPED
+    status: str  # FRESH / FALLBACK / DEGRADED / UNAVAILABLE / SKIPPED
     expected_as_of: date
     snapshot_id: int | None = None
     as_of_date: date | None = None
     payload: Any = None
     error: str | None = None
     note: str | None = None
+    fallback_used: bool = False
 
     @property
     def usable(self) -> bool:
@@ -90,10 +93,16 @@ class SourceOutcome:
 
     @property
     def delay_days(self) -> int:
-        """RULE-SENSE-04 지연 배지 — 수집 실패로 과거 스냅샷을 쓴 경우의 기준일 지연."""
-        if self.status == "FALLBACK" and self.as_of_date is not None:
-            return max(0, (self.expected_as_of - self.as_of_date).days)
-        return 0
+        """기대 기준일보다 오래된 모든 결과의 지연 일수(FRESH 포함)."""
+        if self.as_of_date is None:
+            return 0
+        return max(0, (self.expected_as_of - self.as_of_date).days)
+
+    def mark_degraded(self) -> None:
+        """사용 가능한 원본은 유지하고 최종 정규화 품질 저하만 노출한다."""
+        self.fallback_used = self.fallback_used or self.status == "FALLBACK"
+        self.status = "DEGRADED"
+        self.note = "일부 지점의 소스 정규화에 실패했습니다."
 
     def to_status(self) -> dict[str, Any]:
         return {
@@ -103,10 +112,28 @@ class SourceOutcome:
             "as_of_date": self.as_of_date.isoformat() if self.as_of_date else None,
             "snapshot_id": self.snapshot_id,
             "delay_days": self.delay_days,
-            "is_fallback": self.status == "FALLBACK",
+            "is_fallback": self.status == "FALLBACK" or self.fallback_used,
             "error": self.error,
             "note": self.note,
         }
+
+
+def _safe_error_name(exc: Exception) -> str:
+    """상태/통계에는 예외 메시지 대신 안전한 클래스명만 남긴다."""
+    return type(exc).__name__
+
+
+def _mark_source_unavailable(outcome: SourceOutcome, exc: Exception, note: str) -> SourceOutcome:
+    return SourceOutcome(
+        source_name=outcome.source_name,
+        status="UNAVAILABLE",
+        expected_as_of=outcome.expected_as_of,
+        snapshot_id=outcome.snapshot_id,
+        as_of_date=outcome.as_of_date,
+        payload=None,
+        error=_safe_error_name(exc),
+        note=note,
+    )
 
 
 def collect_source(
@@ -115,28 +142,84 @@ def collect_source(
     config: PipelineConfig,
     fetch: Callable[[], tuple[FetchResult, date]],
 ) -> SourceOutcome:
-    """소스 1개 수집. 어떤 예외도 배치 전체로 전파하지 않고 전일 스냅샷으로 폴백한다(OPS-04, RULE-SENSE-04)."""
-    expected = target_date - timedelta(days=config.sources[source_name].expected_lag_days)
+    """소스 1개 수집. 실패 시 허용 나이 안의 최근 스냅샷만 사용한다."""
+    source = config.sources[source_name]
+    expected = target_date - timedelta(days=source.expected_lag_days)
+    max_fallback_age_days = int(source.options["max_fallback_age_days"])
     started = time.monotonic()
     try:
         result, as_of = fetch()
         with get_connection() as conn:
             snapshot_id = save_snapshot(conn, source_name, as_of, result.payload, result.request_params)
-        log_fields(logger, logging.INFO, "소스 수집", source=source_name, snapshot_id=snapshot_id,
-                   as_of=as_of.isoformat(), elapsed_s=round(time.monotonic() - started, 2))
-        return SourceOutcome(source_name, "FRESH", expected, snapshot_id, as_of, result.payload)
+        outcome = SourceOutcome(source_name, "FRESH", expected, snapshot_id, as_of, result.payload)
+        log_fields(
+            logger,
+            logging.INFO,
+            "소스 수집",
+            source=source_name,
+            snapshot_id=snapshot_id,
+            as_of=as_of.isoformat(),
+            delay_days=outcome.delay_days,
+            elapsed_s=round(time.monotonic() - started, 2),
+        )
+        return outcome
     except Exception as exc:  # noqa: BLE001 — 소스별 실패 격리
-        error = f"{type(exc).__name__}: {exc}"[:300]
+        error = _safe_error_name(exc)
         level = logging.WARNING if isinstance(exc, SourceNotConfiguredError) else logging.ERROR
+        log_fields(logger, level, "소스 수집 예외", source=source_name, error=error)
         with get_connection() as conn:
             fallback = find_latest_snapshot(conn, source_name, target_date)
         if fallback is None:
             log_fields(logger, level, "소스 수집 실패 — 폴백 스냅샷 없음", source=source_name, error=error)
             return SourceOutcome(source_name, "UNAVAILABLE", expected, error=error)
-        log_fields(logger, level, "소스 수집 실패 — 전일 스냅샷 폴백", source=source_name, error=error,
-                   fallback_snapshot_id=fallback.id, fallback_as_of=fallback.as_of_date.isoformat())
-        return SourceOutcome(source_name, "FALLBACK", expected, fallback.id, fallback.as_of_date,
-                             fallback.raw_payload, error=error)
+
+        fallback_outcome = SourceOutcome(
+            source_name=source_name,
+            status="FALLBACK",
+            expected_as_of=expected,
+            snapshot_id=fallback.id,
+            as_of_date=fallback.as_of_date,
+            payload=fallback.raw_payload,
+            error=error,
+            fallback_used=True,
+        )
+        if fallback_outcome.delay_days > max_fallback_age_days:
+            log_fields(
+                logger,
+                level,
+                "소스 수집 실패 — 폴백 허용 나이 초과",
+                source=source_name,
+                error=error,
+                fallback_snapshot_id=fallback.id,
+                fallback_as_of=fallback.as_of_date.isoformat(),
+                delay_days=fallback_outcome.delay_days,
+                max_fallback_age_days=max_fallback_age_days,
+            )
+            return SourceOutcome(
+                source_name,
+                "UNAVAILABLE",
+                expected,
+                fallback.id,
+                fallback.as_of_date,
+                payload=None,
+                error=error,
+                note=(
+                    f"폴백 허용 나이 초과: {fallback_outcome.delay_days}일 > "
+                    f"{max_fallback_age_days}일"
+                ),
+            )
+
+        log_fields(
+            logger,
+            level,
+            "소스 수집 실패 — 최근 스냅샷 폴백",
+            source=source_name,
+            error=error,
+            fallback_snapshot_id=fallback.id,
+            fallback_as_of=fallback.as_of_date.isoformat(),
+            delay_days=fallback_outcome.delay_days,
+        )
+        return fallback_outcome
 
 
 def collect_nts(
@@ -268,10 +351,11 @@ def apply_permit_changes(
     return openings, result.as_dict()
 
 
-def apply_nts_results(outcome: SourceOutcome, target_date: date) -> dict[str, int]:
+def apply_nts_results(outcome: SourceOutcome) -> dict[str, int]:
     """국세청 조회 결과는 인허가 영업상태를 덮어쓴다(RULE-TARGET-01)."""
     if not outcome.usable:
         return {}
+    assert outcome.as_of_date is not None
     updated = unknown = 0
     with get_connection() as conn:
         for item in outcome.payload.get("data") or []:
@@ -280,7 +364,7 @@ def apply_nts_results(outcome: SourceOutcome, target_date: date) -> dict[str, in
             if status is None or len(biz_no) != 10:
                 unknown += 1
                 continue
-            updated += repo.update_business_status_by_nts(conn, biz_no, status, target_date)
+            updated += repo.update_business_status_by_nts(conn, biz_no, status, outcome.as_of_date)
     return {"updated": updated, "unknown": unknown}
 
 
@@ -292,32 +376,101 @@ def normalize_for_branch(
     outcomes: dict[str, SourceOutcome],
     openings: list[normalizer.OpeningInfo],
     config: PipelineConfig,
-) -> list[SignalDraft]:
+) -> tuple[list[SignalDraft], list[str]]:
+    """소스별 정규화를 격리해 한 소스 실패가 다른 draft를 버리지 않게 한다."""
     drafts: list[SignalDraft] = []
+    failed_source_names: list[str] = []
+
     permit = outcomes.get("PERMIT_DAILY")
     if permit and permit.usable:
-        drafts += normalizer.normalize_permit_openings(
-            branch, openings, snapshot_id=permit.snapshot_id, as_of_date=permit.as_of_date,  # type: ignore[arg-type]
-            config=config.normalization,
-        )
+        try:
+            drafts.extend(
+                normalizer.normalize_permit_openings(
+                    branch,
+                    openings,
+                    snapshot_id=permit.snapshot_id,  # type: ignore[arg-type]
+                    as_of_date=permit.as_of_date,  # type: ignore[arg-type]
+                    config=config.normalization,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — 소스별 정규화 실패 격리
+            log_fields(
+                logger,
+                logging.ERROR,
+                "소스 정규화 실패",
+                branch_code=branch.branch_code,
+                source="PERMIT_DAILY",
+                error_class=_safe_error_name(exc),
+            )
+            failed_source_names.append("PERMIT_DAILY")
+
     kma = outcomes.get("KMA_WARNING")
     if kma and kma.usable:
-        drafts += normalizer.normalize_weather_warnings(
-            branch, kma.payload, snapshot_id=kma.snapshot_id, config=config  # type: ignore[arg-type]
-        )
+        try:
+            drafts.extend(
+                normalizer.normalize_weather_warnings(
+                    branch, kma.payload, snapshot_id=kma.snapshot_id, config=config  # type: ignore[arg-type]
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — 소스별 정규화 실패 격리
+            log_fields(
+                logger,
+                logging.ERROR,
+                "소스 정규화 실패",
+                branch_code=branch.branch_code,
+                source="KMA_WARNING",
+                error_class=_safe_error_name(exc),
+            )
+            failed_source_names.append("KMA_WARNING")
+
     ecos = outcomes.get("ECOS_FX")
     if ecos and ecos.usable:
-        fx = normalizer.compute_fx_change(ecos.payload)
-        if fx:
-            drafts += normalizer.normalize_fx(branch, fx, snapshot_id=ecos.snapshot_id,  # type: ignore[arg-type]
-                                              config=config.normalization)
+        try:
+            fx = normalizer.compute_fx_change(ecos.payload)
+            if fx:
+                drafts.extend(
+                    normalizer.normalize_fx(
+                        branch,
+                        fx,
+                        snapshot_id=ecos.snapshot_id,  # type: ignore[arg-type]
+                        config=config.normalization,
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 — 소스별 정규화 실패 격리
+            log_fields(
+                logger,
+                logging.ERROR,
+                "소스 정규화 실패",
+                branch_code=branch.branch_code,
+                source="ECOS_FX",
+                error_class=_safe_error_name(exc),
+            )
+            failed_source_names.append("ECOS_FX")
+
     opinet = outcomes.get("OPINET_PRICE")
     if opinet and opinet.usable:
-        drafts += normalizer.normalize_oil_price(
-            branch, opinet.payload, snapshot_id=opinet.snapshot_id,  # type: ignore[arg-type]
-            as_of_date=opinet.as_of_date, config=config,  # type: ignore[arg-type]
-        )
-    return drafts
+        try:
+            drafts.extend(
+                normalizer.normalize_oil_price(
+                    branch,
+                    opinet.payload,
+                    snapshot_id=opinet.snapshot_id,  # type: ignore[arg-type]
+                    as_of_date=opinet.as_of_date,  # type: ignore[arg-type]
+                    config=config,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — 소스별 정규화 실패 격리
+            log_fields(
+                logger,
+                logging.ERROR,
+                "소스 정규화 실패",
+                branch_code=branch.branch_code,
+                source="OPINET_PRICE",
+                error_class=_safe_error_name(exc),
+            )
+            failed_source_names.append("OPINET_PRICE")
+
+    return drafts, failed_source_names
 
 
 def persist_decisions(
@@ -386,6 +539,7 @@ def sense_branch(
 @dataclass
 class BriefJob:
     branch_id: int
+    ranked: RankedRecommendation
     brief_input: BriefInput
     reason_summary: str
 
@@ -397,6 +551,7 @@ class TargetingResult:
 
 
 def target_branch(
+    conn: psycopg.Connection,
     branch: BranchContext,
     target_date: date,
     thresholds: dict[str, repo.ThresholdParam],
@@ -404,63 +559,78 @@ def target_branch(
     config: PipelineConfig,
     run_id: int | None,
 ) -> TargetingResult:
+    """읽기 트랜잭션에서 확정 순위와 브리프 계획만 만들고 DB publish는 하지 않는다."""
     result = TargetingResult()
-    with get_connection() as conn:
-        if repo.branch_has_tagged_recommendations(conn, branch.id, target_date):
-            # 이미 태깅이 시작된 명부는 재생성하지 않는다(태깅 이력 보존).
-            result.stats = {"skipped": "ALREADY_TAGGED"}
-            return result
+    if repo.branch_has_tagged_recommendations(conn, branch.id, target_date):
+        missing_briefs = repo.count_missing_branch_briefs(conn, branch.id, target_date)
+        if missing_briefs:
+            raise RuntimeError(f"ALREADY_TAGGED 명부의 브리프 {missing_briefs}건이 누락되었습니다")
+        result.stats = {"skipped": "ALREADY_TAGGED", "missing_briefs": 0}
+        return result
 
-        candidates = []
-        for row in repo.load_candidates(conn, branch):
-            distance = haversine_km(branch.lat, branch.lng, row["lat"], row["lng"])  # type: ignore[arg-type]
-            if distance <= branch.coverage_radius_km:
-                candidates.append(repo.to_candidate(row, round(distance, 3)))
-        ids = [candidate.id for candidate in candidates]
+    candidates = []
+    for row in repo.load_candidates(conn, branch):
+        distance = haversine_km(branch.lat, branch.lng, row["lat"], row["lng"])  # type: ignore[arg-type]
+        if distance <= branch.coverage_radius_km:
+            candidates.append(repo.to_candidate(row, round(distance, 3)))
+    if not candidates:
+        raise RuntimeError("추천 후보가 0건이므로 기존 당일 명부를 보존합니다")
+    ids = [candidate.id for candidate in candidates]
 
-        # ① 배제 (스코어링 이전 — 순서 고정, CLAUDE.md §3)
-        params = ExclusionParams(
-            contact_cooldown_days=int(thresholds["CONTACT_COOLDOWN_DAYS"].threshold_value),
-            reject_exclusion_days=config.exclusion.reject_exclusion_days,
-        )
-        passed, excluded = apply_exclusions(candidates, repo.load_tag_history(conn, ids), target_date, params)
+    # ① 배제 (스코어링 이전 — 순서 고정, CLAUDE.md §3)
+    params = ExclusionParams(
+        contact_cooldown_days=int(thresholds["CONTACT_COOLDOWN_DAYS"].threshold_value),
+        reject_exclusion_days=config.exclusion.reject_exclusion_days,
+    )
+    passed, excluded = apply_exclusions(candidates, repo.load_tag_history(conn, ids), target_date, params)
 
-        # ② 스코어링
-        lookback = config.scoring.event_lookback_days
-        events = repo.load_scoring_events(conn, branch.id, target_date - timedelta(days=lookback - 1), target_date)
-        scored = score_candidates(
-            branch, passed, events, weights,
-            repo.load_last_exposure(conn, branch.id, [c.id for c in passed], target_date), target_date, config,
-        )
+    # ② 스코어링
+    lookback = config.scoring.event_lookback_days
+    events = repo.load_scoring_events(conn, branch.id, target_date - timedelta(days=lookback - 1), target_date)
+    scored = score_candidates(
+        branch,
+        passed,
+        events,
+        weights,
+        repo.load_last_exposure(conn, branch.id, [c.id for c in passed], target_date),
+        target_date,
+        config,
+    )
 
-        # ③ TOP 20 (그중 3건 탐색 슬롯 — Phase 2 전까지 비활성)
-        rec_config = config.recommendation
-        ranked = assemble_recommendations(
-            scored, top_n=rec_config.top_n, exploration_slots=rec_config.exploration_slots,
-            exploration_enabled=rec_config.exploration_enabled, weights=weights,
-            seed=exploration_seed(branch.id, target_date),
-        )
+    # ③ TOP 20 (그중 3건 탐색 슬롯 — Phase 2 전까지 비활성)
+    rec_config = config.recommendation
+    ranked = assemble_recommendations(
+        scored,
+        top_n=rec_config.top_n,
+        exploration_slots=rec_config.exploration_slots,
+        exploration_enabled=rec_config.exploration_enabled,
+        weights=weights,
+        seed=exploration_seed(branch.id, target_date),
+    )
+    if not ranked:
+        raise RuntimeError("순위 추천이 0건이므로 기존 당일 명부를 보존합니다")
 
-        repo.delete_recommendations(conn, branch.id, target_date)
-        candidates_by_id = {candidate.id: candidate for candidate in passed}
-        events_by_id = {event.event_id: event for event in events}
-        for item in ranked:
-            recommendation_id = repo.insert_recommendation(
-                conn, branch_id=branch.id, day=target_date, ranked=item, batch_run_id=run_id
+    candidates_by_id = {candidate.id: candidate for candidate in passed}
+    events_by_id = {event.event_id: event for event in events}
+    for item in ranked:
+        candidate = candidates_by_id[item.candidate.business_id]
+        reason_facts = build_reason_facts(candidate, item.candidate, events_by_id, config)
+        result.brief_jobs.append(
+            BriefJob(
+                branch_id=branch.id,
+                ranked=item,
+                brief_input=BriefInput(
+                    # 실제 ID는 원자 publish에서 INSERT 후 반영한다. 프롬프트에는 ID가 포함되지 않는다.
+                    recommendation_id=0,
+                    branch_name=branch.name,
+                    business_name=candidate.name,
+                    industry_name=candidate.industry_name,
+                    distance_km=candidate.distance_km,
+                    facts=[fact.fact for fact in reason_facts],
+                ),
+                reason_summary=reason_facts[0].summary,
             )
-            candidate = candidates_by_id[item.candidate.business_id]
-            reason_facts = build_reason_facts(candidate, item.candidate, events_by_id, config)
-            result.brief_jobs.append(
-                BriefJob(
-                    branch_id=branch.id,
-                    brief_input=BriefInput(
-                        recommendation_id=recommendation_id, branch_name=branch.name,
-                        business_name=candidate.name, industry_name=candidate.industry_name,
-                        distance_km=candidate.distance_km, facts=[fact.fact for fact in reason_facts],
-                    ),
-                    reason_summary=reason_facts[0].summary,
-                )
-            )
+        )
 
     result.stats = {
         "candidates": len(candidates),
@@ -485,10 +655,13 @@ def generate_briefs(jobs: list[BriefJob], llm: LlmClient | None, config: Pipelin
                 llm=llm,
                 config=config.briefing,
             )
-        except Exception:  # noqa: BLE001 — job 하나의 비결정적 생성 실패를 다른 브리프와 격리한다.
-            logger.exception(
-                "브리프 생성 실패 — 정형 화법 재시도: recommendation_id=%s",
-                job.brief_input.recommendation_id,
+        except Exception as exc:  # noqa: BLE001 — job 하나의 비결정적 생성 실패를 다른 브리프와 격리한다.
+            log_fields(
+                logger,
+                logging.ERROR,
+                "브리프 생성 실패 — 정형 화법 재시도",
+                recommendation_id=job.brief_input.recommendation_id,
+                error_class=_safe_error_name(exc),
             )
             # 결정론적 TEMPLATE 생성까지 실패하면 예외를 전파해 기존 전체 실패 처리를 따른다.
             fallback = generate_brief(
@@ -510,6 +683,71 @@ def generate_briefs(jobs: list[BriefJob], llm: LlmClient | None, config: Pipelin
         return [run_job(job) for job in jobs]
     with ThreadPoolExecutor(max_workers=max(1, get_settings().llm_max_concurrency)) as executor:
         return list(executor.map(run_job, jobs))
+
+
+def process_branch_targeting(
+    branch: BranchContext,
+    target_date: date,
+    thresholds: dict[str, repo.ThresholdParam],
+    weights: WeightTable,
+    config: PipelineConfig,
+    run_id: int | None,
+    llm: LlmClient | None,
+) -> tuple[TargetingResult, list[BriefContent]]:
+    """읽기 계획 → 무트랜잭션 LLM → 짧은 추천·브리프 원자 publish를 수행한다."""
+    with get_connection() as plan_conn:
+        targeting = target_branch(plan_conn, branch, target_date, thresholds, weights, config, run_id)
+    if targeting.stats.get("skipped") == "ALREADY_TAGGED":
+        return targeting, []
+
+    # 외부 생성 호출 동안 DB transaction을 열어 두지 않는다.
+    briefs = generate_briefs(targeting.brief_jobs, llm, config)
+
+    with get_connection() as publish_conn:
+        # 계획 이후 태깅이 시작된 경우 기존 명부를 지우지 않고 완전성만 확인한다.
+        if repo.branch_has_tagged_recommendations(publish_conn, branch.id, target_date):
+            missing_briefs = repo.count_missing_branch_briefs(publish_conn, branch.id, target_date)
+            if missing_briefs:
+                raise RuntimeError(f"ALREADY_TAGGED 명부의 브리프 {missing_briefs}건이 누락되었습니다")
+            targeting.stats = {
+                **targeting.stats,
+                "skipped": "ALREADY_TAGGED",
+                "discarded_plan": len(targeting.brief_jobs),
+                "missing_briefs": 0,
+            }
+            return targeting, []
+
+        expected_count = len(targeting.brief_jobs)
+        if len(briefs) != expected_count:
+            raise RuntimeError(
+                f"추천-브리프 계획 개수 불일치: expected={expected_count}, briefs={len(briefs)}"
+            )
+
+        repo.delete_recommendations(publish_conn, branch.id, target_date)
+        recommendation_ids: list[int] = []
+        published_briefs: list[BriefContent] = []
+        for job, brief in zip(targeting.brief_jobs, briefs, strict=True):
+            recommendation_id = repo.insert_recommendation(
+                publish_conn,
+                branch_id=branch.id,
+                day=target_date,
+                ranked=job.ranked,
+                batch_run_id=run_id,
+            )
+            published_brief = brief.model_copy(update={"recommendation_id": recommendation_id})
+            repo.insert_brief(publish_conn, published_brief)
+            recommendation_ids.append(recommendation_id)
+            published_briefs.append(published_brief)
+
+        recommendation_count, brief_count = repo.count_brief_completeness(
+            publish_conn, recommendation_ids
+        )
+        if recommendation_count != expected_count or brief_count != expected_count:
+            raise RuntimeError(
+                "추천-브리프 완전성 검증 실패: "
+                f"expected={expected_count}, recommendations={recommendation_count}, briefs={brief_count}"
+            )
+    return targeting, published_briefs
 
 
 # ─────────────────────────── 오케스트레이션 ───────────────────────────
@@ -535,7 +773,9 @@ def _params_snapshot(
     }
 
 
-def run_pipeline(target_date: date, run_id: int | None) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], list[str]]:
+def run_pipeline(
+    target_date: date, run_id: int | None
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], list[str]]:
     """(stage_stats, source_status, params_snapshot, 실패 지점코드 목록)"""
     config = get_pipeline_config()
     settings = get_settings()
@@ -547,14 +787,7 @@ def run_pipeline(target_date: date, run_id: int | None) -> tuple[dict[str, Any],
         thresholds = repo.load_thresholds(conn)
         weight_entries = repo.load_signal_weights(conn)
         branches_all = repo.load_effective_branches(conn, reference_ts)
-    missing_params = {"EVENT_COOLDOWN_DAYS", "DAILY_EVENT_CAP", "CONTACT_COOLDOWN_DAYS"} - thresholds.keys()
-    if missing_params:
-        raise RuntimeError(f"THRESHOLD_CONFIG 초기값 누락: {', '.join(sorted(missing_params))} (seed.sql 확인)")
 
-    llm = create_llm_client(settings)
-    params = _params_snapshot(target_date, thresholds, weight_entries, llm)
-    weights = WeightTable(weight_entries, default_weight=config.scoring.default_weight,
-                          min_sample=config.recommendation.min_sample_for_update)
     branches = [branch for branch in branches_all if branch.has_coordinates]
     stats["branches"] = {
         "effective": len(branches_all),
@@ -562,59 +795,209 @@ def run_pipeline(target_date: date, run_id: int | None) -> tuple[dict[str, Any],
         "without_coordinates": [b.branch_code for b in branches_all if not b.has_coordinates],
         "using_history": [b.branch_code for b in branches_all if b.from_history],
     }
+    if not branches_all:
+        raise RuntimeError("효력 발생 지점이 0건이므로 외부 소스 수집을 시작하지 않습니다")
+    if not branches:
+        raise RuntimeError("좌표 보유 효력 지점이 0건이므로 외부 소스 수집을 시작하지 않습니다")
+
+    missing_params = {"EVENT_COOLDOWN_DAYS", "DAILY_EVENT_CAP", "CONTACT_COOLDOWN_DAYS"} - thresholds.keys()
+    if missing_params:
+        raise RuntimeError(f"THRESHOLD_CONFIG 초기값 누락: {', '.join(sorted(missing_params))} (seed.sql 확인)")
+
+    llm = create_llm_client(settings)
+    params = _params_snapshot(target_date, thresholds, weight_entries, llm)
+    weights = WeightTable(
+        weight_entries,
+        default_weight=config.scoring.default_weight,
+        min_sample=config.recommendation.min_sample_for_update,
+    )
     area = AreaIndex(branches)
 
     # 1) connectors
     outcomes = collect_all_sources(branches, target_date, config)
     stats["collect_s"] = round(time.monotonic() - stage_started, 2)
 
-    # 2) 사업자 상태 검증: 인허가 1차 → 국세청 2차(덮어씀)
+    # 2) 사업자 상태 검증: 인허가 1차 → 국세청 2차(덮어씀). 각 적용 트랜잭션은 독립 격리한다.
     stage_started = time.monotonic()
-    openings, permit_stats = apply_permit_changes(outcomes["PERMIT_DAILY"], area, config)
+    openings: list[normalizer.OpeningInfo]
+    permit_stats: dict[str, Any]
+    try:
+        openings, permit_stats = apply_permit_changes(outcomes["PERMIT_DAILY"], area, config)
+    except Exception as exc:  # noqa: BLE001 — PERMIT 적용 실패 격리
+        log_fields(
+            logger,
+            logging.ERROR,
+            "인허가 후처리 실패",
+            source="PERMIT_DAILY",
+            error_class=_safe_error_name(exc),
+        )
+        outcomes["PERMIT_DAILY"] = _mark_source_unavailable(
+            outcomes["PERMIT_DAILY"], exc, "인허가 후처리 실패"
+        )
+        openings = []
+        permit_stats = {"error": _safe_error_name(exc)}
+
     nts_outcome, nts_missing = collect_nts(branches, target_date, config)
     outcomes["NTS_STATUS"] = nts_outcome
+    nts_stats: dict[str, Any]
+    try:
+        nts_stats = apply_nts_results(nts_outcome)
+    except Exception as exc:  # noqa: BLE001 — NTS 적용 실패 격리
+        log_fields(
+            logger,
+            logging.ERROR,
+            "국세청 후처리 실패",
+            source="NTS_STATUS",
+            error_class=_safe_error_name(exc),
+        )
+        outcomes["NTS_STATUS"] = _mark_source_unavailable(nts_outcome, exc, "국세청 후처리 실패")
+        nts_stats = {"error": _safe_error_name(exc)}
+
     stats["status_verification"] = {
         "permit": permit_stats,
-        "nts": apply_nts_results(nts_outcome, target_date),
+        "nts": nts_stats,
         "nts_skipped_without_biz_reg_no": nts_missing,
         "elapsed_s": round(time.monotonic() - stage_started, 2),
     }
-
-    # 3) 정규화 + 이벤트 승격, 4) 명부
-    failed: list[str] = []
+    # 3) 정규화 + 이벤트 승격, 4) 명부 계획 → 브리프 생성 → 원자 publish
+    failed: set[str] = set()
+    normalization_stats: dict[str, Any] = {}
     sensing_stats: dict[str, Any] = {}
     targeting_stats: dict[str, Any] = {}
-    brief_jobs: list[BriefJob] = []
+    briefing_by_branch: dict[str, Any] = {}
+    briefing_status_counts: dict[str, int] = {}
+    generated_briefs = 0
+    briefing_elapsed_s = 0.0
     for branch in branches:
         try:
-            drafts = normalize_for_branch(branch, outcomes, openings, config)
-            sensing_stats[branch.branch_code] = sense_branch(branch, drafts, target_date, thresholds, weights, run_id)
-            targeting = target_branch(branch, target_date, thresholds, weights, config, run_id)
+            drafts, normalization_failures = normalize_for_branch(branch, outcomes, openings, config)
+            if normalization_failures:
+                failed.add(branch.branch_code)
+                for source_name in set(normalization_failures):
+                    outcomes[source_name].mark_degraded()
+            normalization_stats[branch.branch_code] = {
+                "drafts": len(drafts),
+                "failed_sources": normalization_failures,
+            }
+            sensing_stats[branch.branch_code] = sense_branch(
+                branch, drafts, target_date, thresholds, weights, run_id
+            )
+
+            briefing_started = time.monotonic()
+            try:
+                targeting, briefs = process_branch_targeting(
+                    branch, target_date, thresholds, weights, config, run_id, llm
+                )
+            finally:
+                briefing_elapsed_s += time.monotonic() - briefing_started
             targeting_stats[branch.branch_code] = targeting.stats
-            brief_jobs.extend(targeting.brief_jobs)
-        except Exception:  # noqa: BLE001 — 지점 1곳 실패가 다른 지점을 막지 않는다
-            logger.exception("지점 처리 실패: %s", branch.branch_code)
-            failed.append(branch.branch_code)
+
+            branch_status_counts: dict[str, int] = {}
+            for brief in briefs:
+                status = brief.generation_status
+                briefing_status_counts[status] = briefing_status_counts.get(status, 0) + 1
+                branch_status_counts[status] = branch_status_counts.get(status, 0) + 1
+            generated_briefs += len(briefs)
+            briefing_by_branch[branch.branch_code] = {
+                "status": targeting.stats.get("skipped", "COMPLETED"),
+                "generated": len(briefs),
+                "by_status": branch_status_counts,
+            }
+        except Exception as exc:  # noqa: BLE001 — 지점 1곳 실패가 다른 지점을 막지 않는다
+            log_fields(
+                logger,
+                logging.ERROR,
+                "지점 처리 실패",
+                branch_code=branch.branch_code,
+                error_class=_safe_error_name(exc),
+            )
+            failed.add(branch.branch_code)
+            targeting_stats.setdefault(branch.branch_code, {"failed": _safe_error_name(exc)})
+            briefing_by_branch[branch.branch_code] = {
+                "status": "FAILED",
+                "error": _safe_error_name(exc),
+                "generated": 0,
+                "by_status": {},
+            }
+
+    stats["normalization"] = normalization_stats
     stats["sensing"] = sensing_stats
     stats["targeting"] = targeting_stats
+    stats["briefing"] = {
+        "generated": generated_briefs,
+        "by_status": briefing_status_counts,
+        "by_branch": briefing_by_branch,
+        "llm_configured": llm is not None,
+        "elapsed_s": round(briefing_elapsed_s, 2),
+    }
 
-    # 5) 브리프
-    stage_started = time.monotonic()
-    briefs = generate_briefs(brief_jobs, llm, config)
+    stats["sources"] = {
+        "degraded": sorted(
+            name
+            for name, outcome in outcomes.items()
+            if outcome.status in {"DEGRADED", "FALLBACK"}
+            or (outcome.usable and outcome.delay_days > 0)
+        ),
+        "unavailable": sorted(name for name, outcome in outcomes.items() if outcome.status == "UNAVAILABLE"),
+    }
+
+    return stats, [outcome.to_status() for outcome in outcomes.values()], params, sorted(failed)
+
+
+def calculate_sla_stats(target_date: date, run_type: str, finished_at: datetime) -> dict[str, Any]:
+    """예약 실행의 07:30 SLA 결과를 finish_run 전에 직렬화한다."""
+    if run_type != "SCHEDULED":
+        return {
+            "applicable": False,
+            "deadline": None,
+            "finished_at": finished_at.isoformat(),
+            "met": None,
+            "missed_by_seconds": None,
+        }
+
+    deadline = datetime.combine(target_date, SLA_TIME, KST)
+    missed_by_seconds = max(0.0, (finished_at - deadline).total_seconds())
+    return {
+        "applicable": True,
+        "deadline": deadline.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "met": missed_by_seconds == 0,
+        "missed_by_seconds": round(missed_by_seconds, 3),
+    }
+
+
+def _finish_lock_rejected_manual_run(run_id: int) -> None:
+    failure_reason = "다른 배치가 데이터 변경 잠금을 사용 중이어서 실행하지 못했습니다."
     with get_connection() as conn:
-        for brief in briefs:
-            repo.insert_brief(conn, brief)
-    status_counts: dict[str, int] = {}
-    for brief in briefs:
-        status_counts[brief.generation_status] = status_counts.get(brief.generation_status, 0) + 1
-    stats["briefing"] = {"generated": len(briefs), "by_status": status_counts,
-                         "llm_configured": llm is not None, "elapsed_s": round(time.monotonic() - stage_started, 2)}
+        run_row = repo.get_run(conn, run_id)
+        if run_row is None or run_row["status"] != "RUNNING":
+            return
+        finished = repo.finish_run(
+            conn,
+            run_id,
+            status="FAILED",
+            failure_reason=failure_reason,
+            params_snapshot={},
+            stage_stats={},
+            source_status=[],
+        )
+        if finished:
+            repo.insert_audit(
+                conn,
+                actor_user_id=run_row["triggered_by"],
+                action="BATCH_RUN_COMPLETED",
+                entity_type="batch_run",
+                entity_id=str(run_id),
+                after_value={
+                    "status": "FAILED",
+                    "failure_reason": failure_reason,
+                    "run_type": "MANUAL",
+                    "target_date": run_row["target_date"].isoformat(),
+                },
+            )
 
-    return stats, [outcome.to_status() for outcome in outcomes.values()], params, failed
 
-
-def run(target_date: date | None, run_id: int | None) -> int:
-    setup_logging("daily")
+def _run_locked(target_date: date | None, run_id: int | None) -> int:
     settings = get_settings()
 
     with get_connection() as conn:
@@ -649,27 +1032,63 @@ def run(target_date: date | None, run_id: int | None) -> int:
         if failed:
             status, failure_reason = "FAILED", f"지점 처리 실패: {', '.join(failed)}"
     except Exception as exc:  # noqa: BLE001
-        logger.exception("일간 배치 실패")
-        status, failure_reason = "FAILED", f"{type(exc).__name__}: {exc}"[:500]
+        error_class = _safe_error_name(exc)
+        log_fields(logger, logging.ERROR, "일간 배치 실패", error_class=error_class)
+        status, failure_reason = "FAILED", f"일간 배치 실패: {error_class}"
     stats["total_s"] = round(time.monotonic() - started, 2)
+    finished_at = datetime.now(KST)
+    stats["sla"] = calculate_sla_stats(target_date, run_row["run_type"], finished_at)
 
     with get_connection() as conn:
-        repo.finish_run(conn, run_id, status=status, failure_reason=failure_reason, params_snapshot=params,
-                        stage_stats=stats, source_status=source_status)
-        # REQ-15 / RULE-SENSE-06: 요청·결과를 감사 로그에 남긴다.
-        repo.insert_audit(conn, actor_user_id=run_row["triggered_by"], action="BATCH_RUN_COMPLETED",
-                          entity_type="batch_run", entity_id=str(run_id),
-                          after_value={"status": status, "failure_reason": failure_reason,
-                                       "run_type": run_row["run_type"], "target_date": target_date.isoformat()})
+        finished = repo.finish_run(
+            conn,
+            run_id,
+            status=status,
+            failure_reason=failure_reason,
+            params_snapshot=params,
+            stage_stats=stats,
+            source_status=source_status,
+        )
+        if finished:
+            # REQ-15 / RULE-SENSE-06: 요청·결과를 감사 로그에 남긴다.
+            repo.insert_audit(conn, actor_user_id=run_row["triggered_by"], action="BATCH_RUN_COMPLETED",
+                              entity_type="batch_run", entity_id=str(run_id),
+                              after_value={"status": status, "failure_reason": failure_reason,
+                                           "run_type": run_row["run_type"], "target_date": target_date.isoformat()})
+    if not finished:
+        log_fields(
+            logger,
+            logging.ERROR,
+            "BATCH_RUN 종료 상태 기록이 fencing에 의해 거부되었습니다",
+            run_id=run_id,
+            attempted_status=status,
+        )
+        return 1
 
-    finished_at = datetime.now(KST)
-    sla_deadline = datetime.combine(target_date, SLA_TIME, KST)
-    if run_row["run_type"] == "SCHEDULED" and finished_at > sla_deadline:
+    sla = stats["sla"]
+    if sla["applicable"] and not sla["met"]:
         log_fields(logger, logging.ERROR, "SLA_MISSED: 07:30 이후 완료", run_id=run_id,
                    finished_at=finished_at.isoformat())
     log_fields(logger, logging.INFO if status == "SUCCESS" else logging.ERROR, "일간 배치 종료",
                run_id=run_id, status=status, failure_reason=failure_reason, total_s=stats["total_s"])
     return 0 if status == "SUCCESS" else 1
+
+
+def run(target_date: date | None, run_id: int | None) -> int:
+    setup_logging("daily")
+    with acquire_advisory_lock(BATCH_MUTATION_LOCK_KEY) as acquired:
+        if not acquired:
+            log_fields(
+                logger,
+                logging.WARNING,
+                "다른 배치가 데이터 변경 잠금을 사용 중이어서 일간 배치를 실행하지 않습니다",
+                run_id=run_id,
+                run_type="MANUAL" if run_id is not None else "SCHEDULED",
+            )
+            if run_id is not None:
+                _finish_lock_rejected_manual_run(run_id)
+            return 1
+        return _run_locked(target_date, run_id)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -67,7 +67,7 @@ display_name = "지방행정인허가"
 #   응답 필드는 구 localdata 표준(mgtNo, bplcNm, trdStateGbn, apvPermYmd, x, y …)을 기준으로 파싱한다.
 url = ""
 expected_lag_days = 2         # REQ-02: 인허가 영업상태는 D-2 기준
-options = { page_size = 500, new_opening_window_days = 7 }
+options = { page_size = 500, new_opening_window_days = 7, max_fallback_age_days = 3 }
 
 [sources.PERMIT_FULL]         # 지방행정 인허가 전수 파일 (F-2) — 월간 모집단
 display_name = "지방행정인허가"
@@ -77,29 +77,30 @@ expected_lag_days = 45
 display_name = "소상공인상가정보"
 url = "https://apis.data.go.kr/B553077/api/open/sdsc2/storeListInRadius"
 expected_lag_days = 120
-options = { page_size = 1000 }
+options = { page_size = 1000, min_population_records = 1, max_population_drop_ratio = 0.5 }
 
 [sources.NTS_STATUS]          # 국세청 사업자등록 상태조회 (S-8) — 보완 검증 전용(신규 개업 탐지 금지)
 display_name = "국세청사업자상태"
 url = "https://api.odcloud.kr/api/nts-businessman/v1/status"
-options = { chunk_size = 100 }
+options = { chunk_size = 100, max_fallback_age_days = 1 }
 
 [sources.KMA_WARNING]         # 기상청 기상특보 (S-2) — 발효/해제만 신호
 display_name = "기상청특보"
 url = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList"
 expected_lag_days = 0
+options = { max_fallback_age_days = 1 }
 
 [sources.ECOS_FX]             # 한국은행 ECOS 원/달러 매매기준율 (일)
 display_name = "한국은행ECOS"
 url = "https://ecos.bok.or.kr/api/StatisticSearch"
 expected_lag_days = 1
-options = { stat_code = "731Y001", item_code = "0000001", cycle = "D", lookback_days = 10 }
+options = { stat_code = "731Y001", item_code = "0000001", cycle = "D", lookback_days = 10, max_fallback_age_days = 7 }
 
 [sources.OPINET_PRICE]        # 오피넷 시도별 평균 유가 (일)
 display_name = "오피넷"
 url = "https://www.opinet.co.kr/api/avgSidoPrice.do"
 expected_lag_days = 0
-options = { prodcd = "B027" }
+options = { prodcd = "B027", max_fallback_age_days = 2 }
 
 [sources.VWORLD_GEOCODER]     # 지점 주소 지오코딩 (RULE-BRANCH-03)
 display_name = "VWorld지오코더"

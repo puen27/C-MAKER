@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -80,22 +82,58 @@ def get_snapshot(conn: psycopg.Connection, snapshot_id: int) -> SnapshotRecord |
     return SnapshotRecord.model_validate(row) if row else None
 
 
-def archive_source_file(source_name: str, as_of_date: date, file_path: Path) -> dict[str, Any]:
-    """파일형 원본(수백 MB 인허가 전수 등)은 JSONB 대신 날짜 파티션 디렉터리에 원본 파일을 보관하고,
-    스냅샷에는 경로·해시·크기 메타데이터를 남긴다."""
-    archive_dir = Path(get_settings().snapshot_archive_dir) / source_name / as_of_date.isoformat()
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    target = archive_dir / file_path.name
-    if file_path.resolve() != target.resolve():
-        shutil.copy2(file_path, target)
-
+def _hash_file(file_path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
-    with target.open("rb") as file:
+    size = 0
+    with file_path.open("rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def _verify_archived_file(target: Path, expected_hash: str, expected_size: int) -> None:
+    actual_hash, actual_size = _hash_file(target)
+    if actual_hash != expected_hash or actual_size != expected_size:
+        raise RuntimeError(
+            f"기존 snapshot archive 내용이 예상과 다릅니다: path={target}, "
+            f"expected_size={expected_size}, actual_size={actual_size}"
+        )
+
+
+def archive_source_file(source_name: str, as_of_date: date, file_path: Path) -> dict[str, Any]:
+    """파일형 원본을 SHA-256 기반 불변 경로에 원자적으로 보관하고 메타데이터를 반환한다."""
+    source_hash, source_size = _hash_file(file_path)
+    archive_dir = Path(get_settings().snapshot_archive_dir) / source_name / as_of_date.isoformat()
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    target = archive_dir / f"{file_path.stem}.{source_hash}{file_path.suffix}"
+
+    if target.exists():
+        _verify_archived_file(target, source_hash, source_size)
+    else:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=archive_dir,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as destination, file_path.open("rb") as source:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+                destination.flush()
+                os.fsync(destination.fileno())
+            _verify_archived_file(temporary_path, source_hash, source_size)
+            if target.exists():
+                _verify_archived_file(target, source_hash, source_size)
+            else:
+                os.replace(temporary_path, target)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+
     return {
         "archived_path": str(target),
         "original_name": file_path.name,
-        "sha256": digest.hexdigest(),
-        "size_bytes": target.stat().st_size,
+        "sha256": source_hash,
+        "size_bytes": source_size,
     }

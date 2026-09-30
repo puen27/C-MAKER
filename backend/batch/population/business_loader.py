@@ -205,33 +205,135 @@ def apply_permit_records(
     return result
 
 
-def load_sbiz_for_branch(
+class PopulationPublishError(RuntimeError):
+    """완전한 모집단으로 안전하게 publish할 수 없을 때 발생한다."""
+
+
+@dataclass
+class SbizApplyResult:
+    input_count: int
+    unique_count: int
+    upserted: int
+    marked_closed: int
+    existing_candidate_count: int
+    incoming_count: int
+    drop_ratio: float
+
+    def as_dict(self) -> dict[str, int | float]:
+        return {
+            "input_count": self.input_count,
+            "unique_count": self.unique_count,
+            "upserted": self.upserted,
+            "marked_closed": self.marked_closed,
+            "existing_candidate_count": self.existing_candidate_count,
+            "incoming_count": self.incoming_count,
+            "drop_ratio": self.drop_ratio,
+        }
+
+
+def _validate_sbiz_publish_limits(
+    min_population_records: int,
+    max_population_drop_ratio: float,
+) -> float:
+    if (
+        isinstance(min_population_records, bool)
+        or not isinstance(min_population_records, int)
+        or min_population_records < 1
+    ):
+        raise PopulationPublishError("min_population_records는 1 이상의 정수여야 합니다")
+    if isinstance(max_population_drop_ratio, bool) or not isinstance(
+        max_population_drop_ratio, (int, float)
+    ):
+        raise PopulationPublishError("max_population_drop_ratio는 0 이상 1 미만의 수여야 합니다")
+    ratio = float(max_population_drop_ratio)
+    if not 0 <= ratio < 1:
+        raise PopulationPublishError("max_population_drop_ratio는 0 이상 1 미만이어야 합니다")
+    return ratio
+
+
+def apply_sbiz_records(
     conn: psycopg.Connection,
-    branch: BranchContext,
-    items: list[dict[str, Any]],
+    items: Iterable[dict[str, Any]],
+    area: AreaIndex,
     population_as_of: date,
     *,
-    complete: bool,
-) -> dict[str, int]:
-    """한 지점 반경의 상가정보 전수를 병합한다. `complete`(전 페이지 수신)일 때만 누락 업소를 폐업 처리한다."""
-    assert branch.lat is not None and branch.lng is not None
-    seen: set[int] = set()
-    invalid = 0
-    for item in items:
-        record = sbiz_item_to_record(item, population_as_of)
-        if record is None:
-            invalid += 1
-            continue
-        seen.add(repo.upsert_business_by_sbiz(conn, record))
+    min_population_records: int,
+    max_population_drop_ratio: float,
+) -> SbizApplyResult:
+    """전 지점 반경 합집합의 SBIZ 전수를 한 트랜잭션에서 fail-closed로 publish한다.
 
-    closed = 0
-    if complete:
-        box = bounding_box(branch.lat, branch.lng, branch.coverage_radius_km)
-        in_radius = [
-            row["id"]
-            for row in repo.find_businesses_in_box(conn, *box)
-            if row["sbiz_store_id"] is not None
-            and haversine_km(branch.lat, branch.lng, row["lat"], row["lng"]) <= branch.coverage_radius_km
-        ]
-        closed = repo.mark_sbiz_missing_closed(conn, in_radius, seen, population_as_of)
-    return {"upserted": len(seen), "invalid": invalid, "marked_closed": closed}
+    모든 항목과 모집단 감소 폭을 먼저 검증해 가드가 실패하면 BUSINESS를 쓰지 않는다. 누락 폐업도
+    지점별이 아니라 AreaIndex 전체의 기존 정상 SBIZ 후보와 전역 seen BUSINESS ID를 한 번만 비교한다.
+    """
+    allowed_drop_ratio = _validate_sbiz_publish_limits(
+        min_population_records,
+        max_population_drop_ratio,
+    )
+    source_items = list(items)
+    records_by_store_id: dict[str, BusinessRecord] = {}
+    invalid_count = 0
+    for item in source_items:
+        record = sbiz_item_to_record(item, population_as_of)
+        if record is None or record.sbiz_store_id is None:
+            invalid_count += 1
+            continue
+        previous = records_by_store_id.get(record.sbiz_store_id)
+        if previous is not None and previous != record:
+            raise PopulationPublishError(f"같은 bizesId의 SBIZ 레코드가 충돌합니다: {record.sbiz_store_id}")
+        records_by_store_id[record.sbiz_store_id] = record
+
+    if invalid_count:
+        raise PopulationPublishError(f"SBIZ 변환 invalid 항목이 {invalid_count}건 있어 publish를 중단합니다")
+
+    candidate_ids: set[int] = set()
+    for box in area.boxes():
+        for row in repo.find_businesses_in_box(conn, *box):
+            business_id = int(row["id"])
+            if (
+                business_id in candidate_ids
+                or row["sbiz_store_id"] is None
+                or row["status_source"] != "SBIZ"
+                or row["operating_status"] != "정상"
+            ):
+                continue
+            if area.contains(float(row["lat"]), float(row["lng"])):
+                candidate_ids.add(business_id)
+
+    existing_candidate_count = len(candidate_ids)
+    incoming_count = len(records_by_store_id)
+    drop_ratio = (
+        (existing_candidate_count - incoming_count) / existing_candidate_count
+        if existing_candidate_count > 0
+        else 0.0
+    )
+    if incoming_count < min_population_records:
+        raise PopulationPublishError(
+            "SBIZ incoming 모집단이 최소 건수보다 작아 publish를 중단합니다: "
+            f"existing={existing_candidate_count}, incoming={incoming_count}, "
+            f"drop_ratio={drop_ratio:.6f}, minimum={min_population_records}"
+        )
+    if existing_candidate_count > 0 and drop_ratio > allowed_drop_ratio:
+        raise PopulationPublishError(
+            "SBIZ 모집단 감소 비율이 허용치를 초과해 publish를 중단합니다: "
+            f"existing={existing_candidate_count}, incoming={incoming_count}, "
+            f"drop_ratio={drop_ratio:.6f}, maximum={allowed_drop_ratio:.6f}"
+        )
+
+    seen_business_ids = {
+        repo.upsert_business_by_sbiz(conn, record) for record in records_by_store_id.values()
+    }
+    marked_closed = repo.mark_sbiz_missing_closed(
+        conn,
+        sorted(candidate_ids),
+        seen_business_ids,
+        population_as_of,
+    )
+    return SbizApplyResult(
+        input_count=len(source_items),
+        unique_count=incoming_count,
+        upserted=incoming_count,
+        marked_closed=marked_closed,
+        existing_candidate_count=existing_candidate_count,
+        incoming_count=incoming_count,
+        drop_ratio=drop_ratio,
+    )

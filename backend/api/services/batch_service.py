@@ -25,6 +25,11 @@ import psycopg
 from backend.api.middlewares.error_middleware import ForbiddenError, TooManyRequestsError
 from backend.api.repositories import audit_repository, batch_run_repository, recommendation_repository
 from backend.common.config import KST, REPO_ROOT, get_pipeline_config, get_settings, today_kst
+from backend.common.db.advisory_lock import (
+    BATCH_MUTATION_LOCK_KEY,
+    acquire_advisory_lock_connection,
+)
+from backend.common.db.pool import get_connection
 from backend.common.schemas.auth import CurrentUser
 from backend.common.schemas.batch_run import (
     BatchRunView,
@@ -66,13 +71,52 @@ def cooldown_remaining_seconds(conn: psycopg.Connection, user_id: int, now: date
     return max(0, int((available_at - now).total_seconds()))
 
 
+def _fail_stale_if_lock_available(_conn: psycopg.Connection) -> tuple[bool, int]:
+    """worker 부재를 확인한 잠금 세션에서 stale 정리하고 잠금 획득 여부와 건수를 반환한다."""
+    with acquire_advisory_lock_connection(BATCH_MUTATION_LOCK_KEY) as (acquired, lock_conn):
+        if not acquired:
+            return False, 0
+        stale_count = batch_run_repository.fail_stale(lock_conn, get_settings().batch_stale_minutes)
+        return True, stale_count
+
+
 def get_status(conn: psycopg.Connection, user: CurrentUser) -> BatchStatusResponse:
-    batch_run_repository.fail_stale(conn, get_settings().batch_stale_minutes)
+    _fail_stale_if_lock_available(conn)
     return BatchStatusResponse(
         latest_run=_to_view(conn, batch_run_repository.latest(conn)),
         cooldown_remaining_seconds=cooldown_remaining_seconds(conn, user.id),
         cooldown_minutes=get_settings().batch_cooldown_minutes,
     )
+
+
+def _mark_orphaned_manual_run_failed(run_id: int, failure_reason: str) -> None:
+    """새 커넥션에서 RUNNING 수동 실행만 실패 처리하고 완료 감사를 같은 트랜잭션에 남긴다."""
+    with get_connection() as conn:
+        row = batch_run_repository.get(conn, run_id)
+        if row is None or row["run_type"] != "MANUAL" or row["status"] != "RUNNING":
+            return
+        if batch_run_repository.mark_failed(conn, run_id, failure_reason):
+            audit_repository.insert(
+                conn,
+                actor_user_id=row["triggered_by"],
+                action="BATCH_RUN_COMPLETED",
+                entity_type="batch_run",
+                entity_id=str(run_id),
+                after_value={
+                    "status": "FAILED",
+                    "failure_reason": failure_reason,
+                    "run_type": "MANUAL",
+                },
+            )
+
+
+def _watch_daily_batch(run_id: int, process: Any) -> None:
+    exit_code = process.wait()
+    failure_reason = f"배치 프로세스가 완료 상태를 기록하지 않고 종료됨(exit_code={exit_code})"
+    try:
+        _mark_orphaned_manual_run_failed(run_id, failure_reason)
+    except Exception:  # noqa: BLE001 — daemon watcher의 DB 실패는 API 프로세스를 중단하지 않고 기록한다
+        logger.exception("종료된 배치 프로세스 상태 정리 실패", extra={"run_id": run_id})
 
 
 def _spawn_daily_batch(run_id: int) -> None:
@@ -91,20 +135,25 @@ def _spawn_daily_batch(run_id: int) -> None:
     else:
         kwargs["start_new_session"] = True
     process = subprocess.Popen(command, **kwargs)  # noqa: S603 — 고정 인자, 사용자 입력 없음
-    # 종료된 자식 프로세스를 회수해 좀비가 남지 않게 한다.
-    threading.Thread(target=process.wait, daemon=True).start()
+    # 종료된 자식 프로세스를 회수하고, worker가 terminal 상태를 기록하지 못한 경우 안전하게 실패 처리한다.
+    threading.Thread(target=_watch_daily_batch, args=(run_id, process), daemon=True).start()
 
 
 def trigger(conn: psycopg.Connection, user: CurrentUser) -> BatchTriggerResponse:
     if user.role not in TRIGGER_ROLES:
         raise ForbiddenError("배치 수동 재실행 권한이 없습니다.")
-    batch_run_repository.fail_stale(conn, get_settings().batch_stale_minutes)
+    lock_acquired, _stale_count = _fail_stale_if_lock_available(conn)
 
     running = batch_run_repository.running(conn)
     if running is not None:
         view = _to_view(conn, running)
         assert view is not None
         return BatchTriggerResponse(run=view, already_running=True)
+    if not lock_acquired:
+        raise TooManyRequestsError(
+            "다른 배치가 시작 중이거나 실행 중입니다. 잠시 후 다시 시도해주세요.",
+            code="BATCH_RUNNING",
+        )
 
     remaining = cooldown_remaining_seconds(conn, user.id)
     if remaining > 0:
@@ -124,7 +173,20 @@ def trigger(conn: psycopg.Connection, user: CurrentUser) -> BatchTriggerResponse
         _spawn_daily_batch(run_id)
     except OSError as exc:
         logger.exception("배치 프로세스 기동 실패")
-        batch_run_repository.mark_failed(conn, run_id, f"배치 프로세스 기동 실패: {type(exc).__name__}")
+        failure_reason = f"배치 프로세스 기동 실패: {type(exc).__name__}"
+        if batch_run_repository.mark_failed(conn, run_id, failure_reason):
+            audit_repository.insert(
+                conn,
+                actor_user_id=user.id,
+                action="BATCH_RUN_COMPLETED",
+                entity_type="batch_run",
+                entity_id=str(run_id),
+                after_value={
+                    "status": "FAILED",
+                    "failure_reason": failure_reason,
+                    "run_type": "MANUAL",
+                },
+            )
     view = _to_view(conn, batch_run_repository.get(conn, run_id))
     assert view is not None
     return BatchTriggerResponse(run=view, already_running=False)
@@ -156,16 +218,22 @@ def get_data_freshness(conn: psycopg.Connection, user: CurrentUser) -> DataFresh
     list_ready = recommendation_repository.has_list(conn, today, user.branch_id)
 
     unavailable_names = [source.display_name for source in sources if source.status == "UNAVAILABLE"]
+    degraded_names = [source.display_name for source in sources if source.status == "DEGRADED"]
     has_fallback = any(source.status == "FALLBACK" or source.is_fallback for source in sources)
+
+    def format_source_names(names: list[str]) -> str:
+        displayed_names = ", ".join(names[:3])
+        remaining_count = len(names) - 3
+        suffix = f" 외 {remaining_count}개" if remaining_count > 0 else ""
+        return f"{displayed_names}{suffix}"
 
     message: str | None = None
     if finished is not None and finished["status"] == "FAILED":
         message = "오늘 일간 배치가 실패했습니다. 일부 데이터가 최신이 아닐 수 있습니다."
     elif unavailable_names:
-        displayed_names = ", ".join(unavailable_names[:3])
-        remaining_count = len(unavailable_names) - 3
-        suffix = f" 외 {remaining_count}개" if remaining_count > 0 else ""
-        message = f"일부 데이터를 수집하지 못했습니다: {displayed_names}{suffix}."
+        message = f"일부 데이터를 수집하지 못했습니다: {format_source_names(unavailable_names)}."
+    elif degraded_names:
+        message = f"일부 데이터 정규화가 완료되지 않았습니다: {format_source_names(degraded_names)}."
     elif has_fallback or max_delay > 0:
         message = (f"일부 신호가 지연되었습니다(기준일 {max_delay}일 전)." if max_delay > 0
                    else "일부 신호가 지연되었습니다.")

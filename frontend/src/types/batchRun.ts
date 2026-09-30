@@ -30,7 +30,7 @@ export interface BatchTriggerResult {
   alreadyRunning: boolean;
 }
 
-export type SourceStatus = 'FRESH' | 'FALLBACK' | 'UNAVAILABLE' | 'SKIPPED';
+export type SourceStatus = 'FRESH' | 'FALLBACK' | 'DEGRADED' | 'UNAVAILABLE' | 'SKIPPED';
 
 export interface SourceFreshness {
   sourceName: string;
