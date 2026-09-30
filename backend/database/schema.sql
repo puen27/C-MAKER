@@ -110,7 +110,7 @@ CREATE TRIGGER trg_branch_effective_from
 
 -- ---------------------------------------------------------------------
 -- 3. app_user — 시스템 계정 (ERD의 USER, 운영자가 psql로 직접 INSERT)
---    password: 평문 저장 (docs/db-schema-decisions-review.md 결정 — 보안 검토 필요)
+--    password: 평문 저장 (report/db-schema-decisions-review.md 결정 — 보안 검토 필요)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_user (
     id                      SERIAL PRIMARY KEY,

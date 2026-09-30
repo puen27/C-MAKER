@@ -1,8 +1,23 @@
-# DB 스키마 변경 검토 — USER/BRANCH (미반영)
+# DB 스키마 변경 검토 — USER/BRANCH (반영 완료)
 
 - **작성일**: 2026-09-08
-- **상태**: 검토만 완료, 공식 문서(`1-domain-definition.md`, `6-erd.md` 등) 미반영
-- **목적**: USER/BRANCH 테이블 운영 방식 변경에 대해 논의한 결정 사항을 한 곳에 모아, 추후 공식 문서에 반영할 때 참고한다.
+- **개정일**: 2026-09-30 (상태 정정)
+- **상태**: ✅ **문서·스키마 모두 반영 완료.** 본 문서는 결정 근거 기록으로 보존한다.
+- **목적**: USER/BRANCH 테이블 운영 방식 변경에 대해 논의한 결정 사항을 한 곳에 모아, 공식 문서에 반영할 때 참고한다.
+
+### 반영 결과 (2026-09-30 확인)
+
+| 결정 | 반영 위치 |
+|---|---|
+| USER 계정 psql 직접 INSERT, 화면·API 없음 | `2-prd.md` v1.4.0 (REQ-01 각주, UC-01·UC-02·API-01 스코프 제외) |
+| `password_hash` → `password` 평문 저장 | `backend/database/schema.sql` — `app_user.password VARCHAR(200)` |
+| `branch_code` 숫자 6자리 CHECK | `schema.sql` — `CONSTRAINT branch_code_format CHECK (branch_code ~ '^[0-9]{6}$')` |
+| 히스토리 테이블 방식 + `effective_from` 트리거 | `schema.sql` — `branch_history` 테이블, `branch_apply_effective_from()` + `trg_branch_effective_from` (CONST-19) |
+| lat/lng 별도 배치 잡, 10분 주기 | `backend/batch/geocoding/geocode_job.py`, `deploy/c-maker.cron` |
+
+> ⚠️ **평문 비밀번호는 여전히 미해결 리스크다.** `report/aws-deployment-analysis.md` §7.4-5에 보안 검토 항목으로 등재되어 있다.
+>
+> 📌 `schema.sql` 주석의 본 문서 경로 표기는 `report/db-schema-decisions-review.md`로 정정했다(2026-09-30).
 
 ---
 

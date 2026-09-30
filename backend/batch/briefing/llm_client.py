@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from openai import OpenAI, OpenAIError
 
@@ -31,10 +32,11 @@ class LlmClient:
         if not settings.llm_base_url or not settings.llm_api_key:
             raise LlmUnavailableError("LLM_BASE_URL / LLM_API_KEY가 설정되지 않았습니다")
         self._model = settings.llm_model
+        self._disable_thinking = settings.llm_disable_thinking
         self._client = OpenAI(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            timeout=settings.llm_timeout_seconds,  # 브리프 1건 5초 이내(UC-07)
+            base_url=settings.llm_base_url,  # .../v1 까지 포함한 주소
+            api_key=settings.llm_api_key,  # LiteLLM Virtual Key → Authorization: Bearer
+            timeout=settings.llm_timeout_seconds,
             max_retries=1,
         )
 
@@ -43,6 +45,11 @@ class LlmClient:
         return self._model
 
     def complete(self, system_prompt: str, user_prompt: str, *, max_tokens: int) -> LlmResult:
+        extra_body: dict[str, Any] = {}
+        if self._disable_thinking:
+            # extended thinking을 끄지 않으면 thinking 토큰이 max_tokens를 먼저 소진해
+            # finish_reason="length" + content="" 가 돌아온다. reasoning_effort로는 꺼지지 않는다.
+            extra_body["thinking"] = {"type": "disabled"}
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
@@ -51,13 +58,18 @@ class LlmClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=max_tokens,
-                temperature=0,  # 재현성(PRIN-08) — 같은 입력이면 최대한 같은 출력
+                # temperature는 보내지 않는다 — 게이트웨이의 claude-opus 계열은 temperature=1만
+                # 허용하고 그 외 값은 400(litellm.UnsupportedParamsError)으로 거부한다.
+                # 따라서 PRIN-08의 재현성은 temperature로 확보할 수 없다(프롬프트 고정으로만 완화).
+                extra_body=extra_body or None,
             )
         except OpenAIError as exc:
             raise LlmUnavailableError(f"{type(exc).__name__}: {exc}") from exc
-        content = response.choices[0].message.content if response.choices else None
+        choice = response.choices[0] if response.choices else None
+        content = choice.message.content if choice else None
         if not content:
-            raise LlmUnavailableError("빈 응답")
+            reason = choice.finish_reason if choice else "no_choices"
+            raise LlmUnavailableError(f"빈 응답 (finish_reason={reason})")
         return LlmResult(text=content, model=response.model or self._model)
 
 

@@ -74,10 +74,17 @@ class Settings(BaseSettings):
     # ── LLM (LiteLLM Gateway, OpenAI-Compatible) ──
     llm_base_url: str = ""
     llm_api_key: str = ""
-    llm_model: str = "claude-opus-4-8"
-    # 브리프 1건 5초 이내(UC-07) — 게이트웨이 호출 타임아웃
-    llm_timeout_seconds: float = 5.0
+    llm_model: str = "claude-opus-5"
+    # 게이트웨이 호출 타임아웃(초). 실측(2026-09-30, claude-opus-5, thinking 비활성):
+    #   출력 112토큰 → 3.7초 / 216토큰 → 7.4초. 대략 30토큰/초.
+    # BriefingConfig.max_output_tokens=400 상한이면 약 14초까지 걸릴 수 있어 15초로 둔다.
+    # ⚠ UC-07의 "브리프 1건 5초 이내"는 이 게이트웨이에서 충족되지 않는다 — 07:30 SLA 재산정 필요.
+    llm_timeout_seconds: float = 15.0
     llm_max_concurrency: int = 4
+    # claude-opus-5 / claude-opus-4-8은 extended thinking이 기본 ON이고, thinking 토큰이
+    # max_tokens를 먼저 소진해 content가 빈 문자열로 돌아온다(게이트웨이 실측).
+    # 브리프는 추론이 아니라 확정된 사실의 문장화이므로 기본 비활성으로 둔다.
+    llm_disable_thinking: bool = True
 
     # ── 배치 ──
     # VAL-12 수동 재실행 쿨다운(분). 코드 상수로 두지 않는다.

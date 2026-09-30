@@ -1,8 +1,21 @@
-# BranchSense AWS 배포 인프라 분석 보고서
+# C-MAKER AWS 배포 인프라 분석 보고서
 
 - **작성일**: 2026-09-29
-- **대상 프로젝트**: BranchSense (영업점 신호 감지 + 접촉 명부 추천 시스템)
-- **분석 범위**: agents/*.md 에이전트 정의, docs/* 프로젝트 문서, frontend/ 소스 구성
+- **개정일**: 2026-09-30 (v2.0.0)
+- **대상 프로젝트**: C-MAKER (영업점 신호 감지 + 접촉 명부 추천 시스템)
+- **분석 범위**: `agents/*.md` 에이전트 정의, `docs/*` 프로젝트 문서, `backend/`·`frontend/` 소스 구성
+
+### 개정 이력
+
+| 버전 | 일자 | 변경 내용 |
+|---|---|---|
+| v1.0.0 | 2026-09-29 | 최초 작성 (EC2 2대 + RDS + Bedrock 직접 호출 가정) |
+| v2.0.0 | 2026-09-30 | **LLM 경로를 LiteLLM Gateway로 정정**(실호출 검증 완료). 제품명 C-MAKER 반영, 현행 단일 EC2 구성과 확장 구성을 §1.3에서 분리, 런타임 버전 현행화(Python 3.14.4 / PostgreSQL 18.6 / Node v24), Bedrock 직접 연동 전제의 IAM Role·AI Agent·Knowledge Base 작업 항목 제거 |
+
+> **이 보고서의 위치**
+> `docs/10-implementation-guide.md`(v2.2.0)가 **현재 배포된 단일 EC2 구성의 최종 기준**이다.
+> 본 보고서는 그 위에서 **AWS 확장 구성(EC2 분리 + RDS)으로 갈 때의 참고 설계**를 다룬다.
+> 두 문서가 충돌하면 `10-implementation-guide.md`를 따른다.
 
 ---
 
@@ -25,15 +38,53 @@
 
 | 영역 | 기술 | 비고 |
 |------|------|------|
-| **Frontend** | React 19 + TypeScript + Zustand + TanStack Query | Vite 빌드, SPA |
-| **Backend (API)** | Python 3.12 + FastAPI | Uvicorn ASGI 서버 |
-| **Backend (Batch)** | Python 3.12 | 일간/월간/주간 배치 파이프라인 |
-| **DB 접근** | psycopg (직접 SQL, ORM 미사용) | |
-| **DB** | PostgreSQL 17 | |
-| **LLM** | AWS Bedrock AI Agent + Knowledge Base | 브리프·캠페인 문구 생성 |
+| **Frontend** | React 19 + TypeScript + Zustand + TanStack Query | Vite 빌드, SPA. `serve -s`로 정적 서빙 |
+| **Backend (API)** | Python 3.14 + FastAPI | Uvicorn ASGI (`:8000`), systemd 관리 |
+| **Backend (Batch)** | Python 3.14 | 일간/월간 배치 + 지오코딩 잡, cron |
+| **DB 접근** | psycopg 3 (직접 SQL, ORM 미사용) | `psycopg[binary]` + `psycopg_pool` |
+| **DB** | PostgreSQL 18.6 | 현행: EC2 localhost. 확장 시 RDS |
+| **LLM** | **LiteLLM Gateway (OpenAI-Compatible)** → 백엔드는 Bedrock | `openai` 패키지로 호출. §1.2 참조 |
 | **공공 데이터** | data.go.kr 등 8종 API | 국세청, 행안부, 기상청 등 |
 
-### 1.2 주요 데이터 소스 (공공 API)
+> **런타임 버전 주의** — 설계 문서(`2-prd.md` 등)는 Python 3.12 / PostgreSQL 17을 적고 있으나, 실제 서버는 Ubuntu 26.04.1 LTS 기본 제공인 **Python 3.14.4 / PostgreSQL 18.6**이다. `backend/requirements.txt`는 3.14에서 설치 검증된 버전으로 고정되어 있다(`pydantic==2.13.5`, `PyJWT` 등).
+
+### 1.2 LLM 경로 — Bedrock 직접 호출이 아니다
+
+v1.0.0에서는 EC2가 Bedrock을 직접 호출하는 것으로 기술했으나, **실제 제공 환경은 사내 LiteLLM Gateway**다. 2026-09-30 실호출로 확인한 내용:
+
+| 항목 | 값 |
+|---|---|
+| Endpoint | `POST https://frontier-llmgw.aipocnhbank.com/v1/chat/completions` |
+| 프로토콜 | OpenAI-Compatible Chat Completions |
+| 인증 | LiteLLM Virtual Key — `Authorization: Bearer sk-...` |
+| 모델 | `claude-opus-5` (그 외 `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5-20251001-v1:0` 등) |
+| 라이브러리 | `openai==1.109.1` (`base_url`을 `.../v1`로 지정) |
+| 호출 지점 | `backend/batch/briefing/llm_client.py` (OPS-06 — briefing 모듈 단독) |
+
+게이트웨이의 모델 ID가 `global.anthropic.claude-opus-5`로 반환되고 모델 목록에 `amazon.titan-embed-text-v2:0`, `nova-2-lite-v1:0`, `stability.stable-image-ultra-v1:1`이 포함되어 있어, **게이트웨이 뒤가 Bedrock**임은 확인된다. 다만 EC2 관점에서는 HTTPS(443) 아웃바운드 한 줄이 전부다.
+
+**배포 영향:**
+
+- **EC2 → Bedrock IAM Role 불필요.** 인증을 게이트웨이가 중계한다. `boto3`도 의존성에 없다.
+- **Bedrock AI Agent / Knowledge Base 구성 작업 불필요.** 일반 Chat Completions만 사용한다.
+- **VPC PrivateLink 대상이 Bedrock이 아니라 게이트웨이**다. 보안 검토 대상이 바뀐다(§7.4).
+- **AWS 비용에 Bedrock 항목이 잡히지 않는다.** 게이트웨이 사용료의 청구 주체는 별도 확인이 필요하다(§8.1).
+
+게이트웨이 제약과 그에 따른 코드 대응은 `docs/10-implementation-guide.md` §8.2에 정리되어 있다(요약: `temperature=0` 거부 → 미전송, extended thinking 기본 ON → `thinking: {"type": "disabled"}` 전달, 지연 약 30토큰/초 → 타임아웃 15초).
+
+### 1.3 현행 구성과 확장 구성
+
+| 구분 | 현행 (배포됨) | 확장 (본 보고서 §3 이하 제안) |
+|---|---|---|
+| 서버 | **EC2 단일 인스턴스** (Ubuntu 26.04.1) | EC2 2대 (Frontend / Backend 분리) |
+| 프론트엔드 | `serve -s` (`:8080`), Nginx 리버스 프록시 | Nginx 정적 서빙 |
+| DB | EC2 localhost PostgreSQL 18.6, 기존 `myapp_db` 재사용 | RDS PostgreSQL, Private Subnet |
+| 네트워크 | 기본 VPC, 인바운드 80/22 | 전용 VPC, Public/Private Subnet × 2 AZ |
+| LLM | LiteLLM Gateway (HTTPS 아웃바운드) | 동일 |
+
+현행 구성의 상세(포트 배치, Nginx 설정, systemd, cron)는 `docs/10-implementation-guide.md` §1~2에 있다. **§3 이하는 확장 구성 기준**으로 읽어야 한다.
+
+### 1.4 주요 데이터 소스 (공공 API)
 
 | 소스 | 제공기관 | 갱신 주기 | 용도 |
 |------|----------|----------|------|
@@ -54,9 +105,9 @@
 
 `agents/` 디렉토리에 총 11개 에이전트 정의 파일이 존재합니다.
 
-| 에이전트 | 모델 | BranchSense 배포와의 관련도 | 역할 요약 |
+| 에이전트 | 모델 | C-MAKER 배포와의 관련도 | 역할 요약 |
 |----------|------|--------------------------|----------|
-| **backend-developer** | sonnet | ⭐⭐⭐ 높음 | FastAPI API·배치 구현, Docker·배포 파이프라인 |
+| **backend-developer** | sonnet | ⭐⭐⭐ 높음 | FastAPI API·배치 구현, 배포 파이프라인 |
 | **frontend-developer** | sonnet | ⭐⭐⭐ 높음 | React SPA 개발, 빌드·배포 구성 |
 | **api-designer** | sonnet | ⭐⭐⭐ 높음 | REST API 설계, OpenAPI 문서화 |
 | **fullstack-developer** | sonnet | ⭐⭐ 중간 | DB→API→Frontend 전 레이어 통합 |
@@ -72,10 +123,12 @@
 
 **backend-developer** 에이전트에서 정의하는 배포 관련 주요 사항:
 - Docker 멀티스테이지 빌드, 컨테이너 health check
-- 환경별 설정 분리 (dev/staging/production)
+- 환경별 설정 분리 (dev/prod — `APP_ENV`)
 - 시크릿 관리, 기능 플래그
 - Prometheus 메트릭, OpenTelemetry 분산 추적
 - 로그 구조화 (correlation ID 포함)
+
+> 현행 배포는 컨테이너가 아니라 **systemd + venv 직접 실행**이다(`deploy/c-maker-api.service`). Docker 관련 항목은 향후 선택지로만 본다.
 
 **frontend-developer** 에이전트에서 정의하는 빌드/배포 사항:
 - TypeScript strict mode, 번들 최적화
@@ -84,12 +137,12 @@
 
 **api-designer** 에이전트에서 정의하는 API 표준:
 - OpenAPI 3.1 명세, JWT 인증
-- Rate limiting, CORS 설정
+- Rate limiting, CORS 설정 (와일드카드 금지 — OPS-07)
 - API 버저닝 전략
 
 ---
 
-## 3. AWS 인프라 구성도
+## 3. AWS 인프라 구성도 (확장 구성)
 
 ### 3.1 전체 구성도
 
@@ -136,7 +189,7 @@
 │  │  ┌─ Private Subnet (10.0.2.0/24) ─────────────────────┼───────────────────────────┐   │ │
 │  │  │                                                     │                           │   │ │
 │  │  │  ┌─ Amazon RDS ──────────────────────────────────┐  │                           │   │ │
-│  │  │  │  PostgreSQL 17                                 │  │                           │   │ │
+│  │  │  │  PostgreSQL 18                                 │  │                           │   │ │
 │  │  │  │  - Multi-AZ (선택)                              │◄─┘                           │   │ │
 │  │  │  │  - 자동 백업 (7일 보존)                          │                              │   │ │
 │  │  │  │  - Port: 5432                                  │                              │   │ │
@@ -145,16 +198,20 @@
 │  │  └──────────────────────────────────────────────────────────────────────────────────┘   │ │
 │  │                                                                                       │ │
 │  └───────────────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                          │
-│  ┌─ AWS Bedrock ─────────────────────────┐    ┌─ 외부 공공 API ──────────────────────┐   │
-│  │  AI Agent (브리프·캠페인 문구 생성)       │    │  data.go.kr (인허가, 국세청 등)      │   │
-│  │  Knowledge Base (공개 상품설명서 RAG)     │    │  ECOS, 오피넷, 기상청 등             │   │
-│  │                                        │    │                                     │   │
-│  │  ※ VPC PrivateLink 경유 (보안팀 확인)    │    │  ※ EC2 Backend → HTTPS 아웃바운드    │   │
-│  └────────────────────────────────────────┘    └─────────────────────────────────────┘   │
-│                                                                                          │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                            │ HTTPS 443 아웃바운드
+              ┌─────────────────────────────┴──────────────────────────────┐
+              ▼                                                             ▼
+┌─ 사내 LiteLLM Gateway ─────────────────┐    ┌─ 외부 공공 API ──────────────────────┐
+│  frontier-llmgw.aipocnhbank.com/v1     │    │  data.go.kr (인허가, 국세청 등)      │
+│  OpenAI-Compatible Chat Completions    │    │  ECOS, 오피넷, 기상청 등             │
+│  Virtual Key (Bearer) 인증              │    │                                     │
+│    └─ (게이트웨이 백엔드: AWS Bedrock)   │    │  ※ EC2 Backend → HTTPS 아웃바운드    │
+│  ※ PrivateLink 적용 여부 보안팀 확인     │    │                                     │
+└────────────────────────────────────────┘    └─────────────────────────────────────┘
 ```
+
+> **v1.0.0과의 차이** — 구성도에서 `AWS Bedrock (AI Agent + KB)` 박스를 제거하고, VPC 밖의 **사내 LiteLLM Gateway**로 교체했다. EC2는 Bedrock에 직접 접근하지 않는다.
 
 ### 3.2 네트워크 구성 상세
 
@@ -184,7 +241,7 @@
 |------|------|----------|------|
 | 인바운드 | 80, 443 | 0.0.0.0/0 | API 접속 |
 | 인바운드 | 22 | WorkSpaces IP | SSH 접속 |
-| 아웃바운드 | 443 | 0.0.0.0/0 | 공공 API + Bedrock 호출 |
+| 아웃바운드 | 443 | 0.0.0.0/0 | 공공 API + **LiteLLM Gateway** 호출 |
 | 아웃바운드 | 5432 | RDS SG | DB 접속 |
 
 **RDS Security Group**
@@ -193,6 +250,8 @@
 |------|------|----------|------|
 | 인바운드 | 5432 | Backend EC2 SG | API·배치에서 DB 접근 |
 | 인바운드 | 5432 | WorkSpaces SG | 운영자 psql 직접 접근 (REQ-01) |
+
+> 현행 단일 EC2 구성의 SG는 `docs/10-implementation-guide.md` §1.2를 따른다(인바운드 80/22, 아웃바운드 443, 5432·8000·8080은 localhost 내부).
 
 ---
 
@@ -227,9 +286,10 @@
 └────────────┼─────────────────┘
              │
              ▼
-┌─ RDS: PostgreSQL 17 ────────┐
+┌─ PostgreSQL 18 ─────────────┐
 │  RECOMMENDATION, BRIEF,      │
 │  BUSINESS, EVENT 등 조회      │
+│  (현행: localhost / 확장: RDS)│
 └──────────────────────────────┘
 ```
 
@@ -238,7 +298,7 @@
 ```
 ┌─ EC2: Backend ─────────────────────────────────────────────────────────────┐
 │                                                                             │
-│  cron (00:00~07:00 실행) 또는 수동 재연동 (REQ-17)                           │
+│  cron (매일 06:00) 또는 수동 재연동 (REQ-17)                                 │
 │       │                                                                     │
 │       ▼                                                                     │
 │  run_daily.py                                                              │
@@ -256,34 +316,40 @@
 │       │                                   │                                  │
 │       ├─ ④ targeting                      │                                  │
 │       │     배제 → 스코어링 → TOP 20        │                                  │
-│       │     (탐색 슬롯 3건 포함)             │                                  │
+│       │     (탐색 슬롯은 Phase 2)           │                                  │
 │       │                                   │                                  │
 │       ├─ ⑤ briefing ───────────────────┐  │                                  │
-│       │     AWS Bedrock AI Agent 호출    │──→ Bedrock (HTTPS / PrivateLink)  │
+│       │     LiteLLM Gateway              │──→ frontier-llmgw (HTTPS 443)    │
+│       │     POST /v1/chat/completions    │    └─ 게이트웨이 백엔드: Bedrock   │
 │       │     + citation guard 검증        │                                   │
+│       │     실패 시 TEMPLATE 정형 화법 폴백 │                                   │
 │       │                                  │                                   │
 │       └─ ⑥ DB 적재                       │                                   │
 │             SIGNAL, EVENT, RECOMMENDATION,│                                   │
-│             BRIEF, CRM 파일 사전 생성      │──→ RDS PostgreSQL (5432)          │
+│             BRIEF, CRM 파일 사전 생성      │──→ PostgreSQL (5432)              │
 │                                           │                                   │
 │  07:30 이전 완료 (P95 SLA)                 │                                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+> **⚠ SLA 리스크** — LiteLLM Gateway 실측 지연은 약 30토큰/초로, 브리프 1건에 7.4초가 걸렸다(216 출력 토큰). `UC-07`의 "브리프 1건 5초 이내"를 충족하지 못한다. TOP 20 × 파일럿 지점 수만큼 곱해지므로 **07:30 SLA 재산정 또는 `claude-haiku-4-5` 전환 검토가 필요하다**(`docs/10-implementation-guide.md` §17-6).
+
 ### 4.3 모집단 적재 흐름 (월 1회)
 
 ```
-run_monthly.py
+run_monthly.py  (매월 1일 01:00)
     │
-    ├─ ① 지방행정 인허가 전수 데이터 수집 (data.go.kr)
+    ├─ ① 지방행정 인허가 전수 데이터 수집 (CSV, PERMIT_FULL_DATA_DIR)
     │
-    ├─ ② 좌표 변환 (EPSG:5174 → WGS84)
+    ├─ ② 좌표 변환 (EPSG:5174 → WGS84, pyproj / VAL-11)
     │
     ├─ ③ BUSINESS 테이블 UPSERT (permit_mgt_no 기준 병합)
     │
     └─ ④ 적재 기준월 기록
-         → RDS PostgreSQL
+         → PostgreSQL
+
+geocode_job.py  (10분 주기) — 지점 주소 → 좌표 (VWorld, RULE-BRANCH-03)
 ```
 
 ---
@@ -315,19 +381,19 @@ main (production)
 
 # ── Frontend 배포 Job ────────────────
 # 1. Checkout
-# 2. Node.js 20 설정
+# 2. Node.js 24 설정 (현행 서버 v24.21.0, 20 LTS 호환)
 # 3. npm ci
 # 4. npm run build (Vite 빌드)
-# 5. SCP로 빌드 산출물을 Frontend EC2에 전송
-# 6. SSH로 Nginx 재시작
+# 5. SCP로 빌드 산출물을 EC2 frontend/dist/ 에 전송
+# 6. SSH로 c-maker-frontend(serve) 재시작
 
 # ── Backend 배포 Job ─────────────────
 # 1. Checkout
-# 2. Python 3.12 설정
-# 3. pip install -r requirements.txt
-# 4. pytest (테스트 실행)
-# 5. SCP로 소스를 Backend EC2에 전송
-# 6. SSH로 서비스 재시작 (systemd reload)
+# 2. Python 3.14 설정
+# 3. pip install -r backend/requirements.txt
+# 4. ruff check + pytest
+# 5. SCP로 소스를 EC2에 전송
+# 6. SSH로 c-maker-api(systemd) 재시작
 ```
 
 ### 5.3 GitHub Actions 워크플로우 상세
@@ -343,19 +409,18 @@ main (production)
                           │     ├─ Lint + Type Check                                   │
                           │     │   ├─ ESLint (frontend)                               │
                           │     │   ├─ tsc --noEmit (frontend)                         │
-                          │     │   └─ ruff / mypy (backend)                           │
+                          │     │   └─ ruff (backend)                                  │
                           │     │                                                      │
                           │     ├─ Test                                                │
                           │     │   ├─ pytest (backend)                                │
                           │     │   └─ vitest (frontend, 추후)                          │
                           │     │                                                      │
                           │     ├─ Build                                               │
-                          │     │   ├─ npm run build (frontend → dist/)                │
-                          │     │   └─ pip freeze > requirements.txt (backend)         │
+                          │     │   └─ npm run build (frontend → dist/)                │
                           │     │                                                      │
                           │     └─ Deploy                                              │
-                          │         ├─ Frontend EC2: SCP dist/ → SSH nginx reload      │
-                          │         └─ Backend EC2: SCP src/ → SSH systemd restart     │
+                          │         ├─ SCP dist/  → SSH systemctl restart frontend     │
+                          │         └─ SCP src/   → SSH systemctl restart api          │
                           │                                                            │
                           └────────────────────────────────────────────────────────────┘
 ```
@@ -365,77 +430,25 @@ main (production)
 | 항목 | 설정 위치 | 내용 |
 |------|----------|------|
 | **SSH Key** | GitHub → Settings → Secrets | EC2 접속용 private key |
-| **EC2 Host** | GitHub → Settings → Secrets | Frontend/Backend EC2 Public IP 또는 도메인 |
-| **AWS Credentials** | GitHub → Settings → Secrets | (Bedrock·RDS 접근 시 필요) |
+| **EC2 Host** | GitHub → Settings → Secrets | EC2 Public IP 또는 도메인 |
+| ~~**AWS Credentials**~~ | — | **불필요.** Bedrock 직접 호출이 없어 IAM 자격증명이 필요하지 않다(§1.2) |
 | **Environment Vars** | GitHub → Settings → Variables | `VITE_API_BASE_URL` 등 빌드 환경변수 |
 | **Branch Protection** | GitHub → Settings → Branches | main 브랜치 직접 push 방지, PR 필수 |
 
+> `.env`(DB 비밀번호, 공공 API 키, `LLM_API_KEY`)는 **GitHub에 두지 않고 EC2에만 배치**한다. `.gitignore`에 `.env`가 포함되어 있다.
+
 ### 5.5 EC2 서버 사전 준비
 
-**Frontend EC2**
+현행 단일 EC2 기준의 검증된 절차(패키지 설치, Nginx, systemd, cron)는 **`docs/10-implementation-guide.md` §1.3·§2·§11**을 사용한다. 배포 산출물은 저장소의 `deploy/` 에 있다:
 
-```bash
-# Nginx 설치 및 설정
-sudo apt update && sudo apt install -y nginx
+| 파일 | 용도 |
+|---|---|
+| `deploy/c-maker.nginx.conf` | Nginx 리버스 프록시 (`/` → :8080, `/api/` → :8000) |
+| `deploy/c-maker-api.service` | FastAPI(Uvicorn) systemd 유닛 |
+| `deploy/c-maker-frontend.service` | `serve -s frontend/dist` systemd 유닛 |
+| `deploy/c-maker.cron` | `run_daily.py`, `run_monthly.py`, `geocode_job.py` 등록 |
 
-# /etc/nginx/sites-available/frontend
-server {
-    listen 80;
-    server_name your-frontend-domain.com;
-
-    root /var/www/frontend/dist;
-    index index.html;
-
-    # SPA 라우팅 지원
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 요청은 Backend EC2로 프록시
-    location /api/ {
-        proxy_pass http://BACKEND_EC2_PRIVATE_IP:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-**Backend EC2**
-
-```bash
-# Python 3.12 + 의존성
-sudo apt update
-sudo apt install -y python3.12 python3.12-venv python3-pip
-
-# 가상환경 생성
-python3.12 -m venv /opt/branchsense/venv
-source /opt/branchsense/venv/bin/activate
-pip install -r requirements.txt
-
-# systemd 서비스 등록
-# /etc/systemd/system/branchsense-api.service
-[Unit]
-Description=BranchSense API Server
-After=network.target
-
-[Service]
-User=branchsense
-WorkingDirectory=/opt/branchsense/backend
-ExecStart=/opt/branchsense/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-Restart=always
-EnvironmentFile=/opt/branchsense/.env
-
-[Install]
-WantedBy=multi-user.target
-
-# 배치 cron 등록
-# crontab -e
-0 0 * * * /opt/branchsense/venv/bin/python /opt/branchsense/backend/run_daily.py
-0 2 1 * * /opt/branchsense/venv/bin/python /opt/branchsense/backend/run_monthly.py
-0 3 * * 1 /opt/branchsense/venv/bin/python /opt/branchsense/backend/run_weekly.py
-```
+확장 구성(EC2 2대)으로 갈 때는 Frontend EC2에서 `serve` 대신 Nginx 정적 서빙으로 바꾸고, `/api/` 프록시 대상을 Backend EC2의 사설 IP로 지정한다.
 
 ---
 
@@ -487,15 +500,15 @@ WantedBy=multi-user.target
 | **API Key 보안** | ❌ `VITE_` 접두사 환경변수는 빌드 시 코드에 삽입되어 브라우저 Network 탭에서 누구나 확인 가능 | ✅ `.env`에 저장, 서버 프로세스만 접근. 브라우저에 일체 노출 없음 |
 | **호출 한도 관리** | ❌ 사용자 100명 동시 접속 시 100건 호출 발생. 일일 한도 빠르게 소진 | ✅ 서버 캐시(30분 TTL)로 동일 요청은 1번만 호출. 사용자 100명 → 공공 API 1회 |
 | **데이터 가공** | △ 프론트엔드에서 XML→JSON 변환, 필드 추출 등 처리. 브라우저 부하 증가 | ✅ 서버에서 정제 후 필요한 필드만 프론트에 전달 |
-| **장애 대응** | ❌ 공공 API 장애가 사용자 화면에 직접 영향. 대체 수단 없음 | ✅ 만료 캐시 반환(stale data) + 재시도 로직. 폴백 전략 구현 가능 |
+| **장애 대응** | ❌ 공공 API 장애가 사용자 화면에 직접 영향. 대체 수단 없음 | ✅ 전일 스냅샷 폴백(RULE-SENSE-04) + 재시도 로직 구현 가능 |
 | **로깅·모니터링** | ❌ 브라우저에서의 호출은 서버 로그에 남지 않음 | ✅ 호출 횟수, 응답시간, 에러율 등 서버 로그에 기록. 모니터링 대시보드 구성 가능 |
 | **캐싱 효율** | △ 브라우저 메모리 캐시(TanStack Query)만 가능. 사용자별 독립 캐시 | ✅ 2중 캐시 구조 (브라우저 + 서버). 서버 캐시는 모든 사용자가 공유 |
 | **개발 복잡도** | ✅ 단순. 프론트엔드에 API 클라이언트만 추가 | △ 백엔드 Router → Service → Client 3개 레이어 추가 필요 |
-| **서버 비용** | ✅ 추가 서버 비용 없음 (이미 있는 Frontend EC2만 사용) | △ Backend EC2에 추가 부하 발생. 이미 배치용으로 존재하므로 한계적 추가 비용 |
-| **Bedrock 연계** | ❌ 프론트에서 수집한 공공 데이터를 Bedrock과 결합하려면 결국 백엔드로 전달해야 함 | ✅ 서버에서 공공 데이터 + DB 데이터 + Bedrock 결과를 자유롭게 조합 |
+| **서버 비용** | ✅ 추가 서버 비용 없음 | △ Backend에 추가 부하. 이미 배치용으로 존재하므로 한계적 추가 비용 |
+| **LLM 연계** | ❌ 프론트에서 수집한 공공 데이터를 LLM 입력과 결합하려면 결국 백엔드로 전달해야 함. `LLM_API_KEY`를 브라우저에 노출할 수도 없다 | ✅ 서버에서 공공 데이터 + DB 데이터 + LLM 결과를 조합. OPS-06(briefing 모듈 단독 호출) 격리 원칙 유지 |
 | **감사 추적** | ❌ REQ-15(감사 추적 로그) 요건 충족 불가 | ✅ 모든 데이터 흐름이 서버를 경유하므로 완전한 감사 추적 가능 |
 
-### 6.4 BranchSense 프로젝트에 대한 결론
+### 6.4 C-MAKER 프로젝트에 대한 결론
 
 **Case B (Backend 경유)를 권장합니다.** 이유:
 
@@ -503,8 +516,8 @@ WantedBy=multi-user.target
 2. **감사 추적**: REQ-15에서 모든 데이터 흐름의 감사 추적을 요구
 3. **기존 아키텍처와 일관성**: PRD 5장 아키텍처에서 이미 배치 파이프라인이 공공 API를 서버에서 수집하는 구조
 4. **호출 한도**: 국세청 API (1일 100만건), 인허가 데이터 등 한도 관리가 중요
-5. **SLA 충족**: 07:30 SLA를 위한 폴백 전략은 서버 캐시가 필수
-6. **Bedrock 연계**: 브리프 생성 시 공공 데이터와 LLM 결과를 서버에서 결합
+5. **SLA 충족**: 07:30 SLA를 위한 폴백 전략은 서버 스냅샷이 필수
+6. **LLM 연계**: 브리프 생성 시 공공 데이터와 LLM 결과를 서버에서 결합하고, `LLM_API_KEY`를 서버에만 둔다
 
 > **Case A는 PoC·프로토타이핑 단계에서만 유효합니다.** 운영 서비스 배포 시에는 반드시 Case B 구조를 사용해야 합니다.
 
@@ -522,54 +535,59 @@ WantedBy=multi-user.target
 
 ### 7.1 인프라 구성 작업
 
-| # | 작업 | 상세 | 우선순위 |
-|---|------|------|----------|
-| 1 | **VPC 생성** | CIDR: 10.0.0.0/16, Public/Private Subnet × 2 AZ | 필수 |
-| 2 | **EC2 Frontend 인스턴스** | Amazon Linux 2023 또는 Ubuntu 22.04, Nginx 설치 | 필수 |
-| 3 | **EC2 Backend 인스턴스** | Python 3.12, Nginx, 충분한 메모리(배치용) | 필수 |
-| 4 | **RDS PostgreSQL 17** | Private Subnet, Multi-AZ (운영), 자동 백업 | 필수 |
-| 5 | **Security Group 설정** | §3.3 참조, 최소 권한 원칙 | 필수 |
-| 6 | **IAM Role 설정** | EC2 → Bedrock 접근용 IAM Role | 필수 |
-| 7 | **AWS Bedrock 설정** | AI Agent + Knowledge Base 구성, 모델 접근 권한 | 필수 |
-| 8 | **SSL 인증서** | ACM 또는 Let's Encrypt, HTTPS 적용 | 필수 |
-| 9 | **도메인 설정** | Route 53 또는 기존 DNS에 A/CNAME 레코드 | 권장 |
-| 10 | **CloudWatch 설정** | EC2/RDS 모니터링, 알람 구성 | 권장 |
+| # | 작업 | 상세 | 현행 단일 EC2 | 확장 구성 |
+|---|------|------|---|---|
+| 1 | **VPC 생성** | CIDR: 10.0.0.0/16, Public/Private Subnet × 2 AZ | 기본 VPC 사용 | 필수 |
+| 2 | **EC2 Frontend 인스턴스** | Nginx 정적 서빙 | 불필요 (단일 EC2에 serve) | 필수 |
+| 3 | **EC2 Backend 인스턴스** | Python 3.14, Nginx, 배치용 메모리 | ✅ 구성 완료 | 필수 |
+| 4 | **RDS PostgreSQL 18** | Private Subnet, Multi-AZ (운영), 자동 백업 | 불필요 (localhost PG 18.6) | 권장 |
+| 5 | **Security Group 설정** | §3.3 / 현행은 구현가이드 §1.2 | ✅ 적용 | 필수 |
+| 6 | ~~**IAM Role (EC2 → Bedrock)**~~ | **제거됨** — Bedrock 직접 호출 없음(§1.2) | 불필요 | 불필요 |
+| 7 | ~~**AWS Bedrock 설정**~~ | **제거됨** — AI Agent·Knowledge Base 구성 불필요(§1.2) | 불필요 | 불필요 |
+| 8 | **LiteLLM Gateway 연결 확인** | 아웃바운드 443 허용 + Virtual Key 주입 | ✅ 실호출 검증 (2026-09-30) | 필수 |
+| 9 | **SSL 인증서** | ACM 또는 Let's Encrypt, HTTPS 적용 | ❌ 미적용 (현재 80만 사용) | 필수 |
+| 10 | **도메인 설정** | Route 53 또는 기존 DNS에 A/CNAME 레코드 | 미설정 | 권장 |
+| 11 | **CloudWatch 설정** | EC2/RDS 모니터링, 알람 구성 | 미설정 | 권장 |
 
 ### 7.2 애플리케이션 준비 작업
 
 | # | 작업 | 상세 | 우선순위 |
 |---|------|------|----------|
-| 1 | **환경변수 파일 구성** | Backend: `.env` (DB_HOST, PUBLIC_API_KEY, AWS_REGION 등) | 필수 |
-| 2 | **Frontend 빌드 환경변수** | `VITE_API_BASE_URL` (Backend EC2 주소) | 필수 |
-| 3 | **DB 스키마 마이그레이션** | `database/schema.sql` 실행, 초기 데이터 적재 | 필수 |
-| 4 | **BRANCH/USER 초기 데이터** | 운영자가 psql로 직접 INSERT (REQ-01) | 필수 |
-| 5 | **공공 API 키 발급** | data.go.kr 서비스 키 신청 (8종 각각) | 필수 |
-| 6 | **Bedrock AI Agent 구성** | Action Group 등록, Knowledge Base 색인 | 필수 |
-| 7 | **Nginx 설정 파일** | Frontend: SPA 라우팅 + API 프록시, Backend: 리버스 프록시 | 필수 |
-| 8 | **systemd 서비스 등록** | FastAPI 자동 시작·재시작 | 필수 |
-| 9 | **cron 등록** | 일간(run_daily.py), 월간(run_monthly.py), 주간(run_weekly.py) | 필수 |
-| 10 | **로그 수집 설정** | CloudWatch Agent 또는 파일 로그 로테이션 | 권장 |
+| 1 | **환경변수 파일 구성** | `.env` — DB 접속정보, 공공 API 키, `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`. 템플릿은 `.env.example` | 필수 |
+| 2 | **`APP_ENV=prod` 확인** | dev로 두면 `/api/docs`가 노출된다 | 필수 |
+| 3 | **Frontend 빌드 환경변수** | `VITE_API_BASE_URL=/api` | 필수 |
+| 4 | **DB 스키마 마이그레이션** | `database/schema.sql` 실행 (`cmaker` 스키마 생성), 트리거 동작 확인 | 필수 |
+| 5 | **BRANCH/USER 초기 데이터** | 운영자가 psql로 직접 INSERT (REQ-01) | 필수 |
+| 6 | **공공 API 키 발급** | data.go.kr 서비스 키 + ECOS·오피넷·VWorld 별도 포털 | 필수 |
+| 7 | ~~**Bedrock AI Agent 구성**~~ | **제거됨** — Action Group·KB 색인 불필요(§1.2) | 불필요 |
+| 8 | **LLM 게이트웨이 설정 검증** | `LLM_DISABLE_THINKING=true`, `LLM_TIMEOUT_SECONDS=15` (구현가이드 §8.2) | 필수 |
+| 9 | **Nginx 설정 파일** | `deploy/c-maker.nginx.conf` 적용 | 필수 |
+| 10 | **systemd 서비스 등록** | `deploy/c-maker-api.service`, `c-maker-frontend.service` | 필수 |
+| 11 | **cron 등록** | `deploy/c-maker.cron` — 일간/월간/지오코딩 | 필수 |
+| 12 | **로그 수집 설정** | `LOG_DIR` 지정 (예: `/var/log/c-maker`) + 로테이션 | 권장 |
 
 ### 7.3 GitHub CI/CD 구성 작업
 
 | # | 작업 | 상세 | 우선순위 |
 |---|------|------|----------|
-| 1 | **GitHub Repository 생성** | 모노레포 (frontend/ + backend/) 또는 분리 | 필수 |
-| 2 | **GitHub Secrets 등록** | SSH Key, EC2 Host, 환경변수 | 필수 |
+| 1 | **GitHub Repository** | 모노레포 (`frontend/` + `backend/`) | ✅ 완료 |
+| 2 | **GitHub Secrets 등록** | SSH Key, EC2 Host | 필수 |
 | 3 | **GitHub Actions 워크플로우** | Lint → Test → Build → Deploy 파이프라인 | 필수 |
 | 4 | **Branch Protection Rules** | main 브랜치 보호, PR 리뷰 필수 | 권장 |
-| 5 | **.gitignore 정비** | `.env`, `node_modules/`, `__pycache__/`, `dist/` | 필수 |
+| 5 | **.gitignore 정비** | `.env`, `node_modules/`, `__pycache__/`, `dist/`, `data/` | ✅ 완료 |
 | 6 | **PR 템플릿** | 변경사항 체크리스트, 테스트 결과 기록 | 권장 |
 
 ### 7.4 보안 검토 필요 사항 (PRD 6장·10장 연계)
 
 | # | 사항 | 상태 | 담당 |
 |---|------|------|------|
-| 1 | AWS Bedrock 리전 선택 | 보안팀 확인 필요 | 보안·IT |
-| 2 | VPC PrivateLink 사용 여부 | 보안팀 확인 필요 | 보안·IT |
-| 3 | 데이터 반출 경로 승인 | 보안팀 확인 필요 | 보안 |
-| 4 | USER 비밀번호 평문 저장 → 해싱 전환 검토 | 검토 필요 | 개발·보안 |
-| 5 | 공공 API 키 관리 방안 | AWS Secrets Manager 권장 | 개발 |
+| 1 | ~~AWS Bedrock 리전 선택~~ | ✅ **해소** — EC2가 Bedrock을 직접 부르지 않는다. 리전 선택은 게이트웨이 운영 주체의 소관 | — |
+| 2 | **LiteLLM Gateway 구간 PrivateLink / 전용망 적용 여부** | 보안팀 확인 필요 (검토 대상이 Bedrock → 게이트웨이로 변경) | 보안·IT |
+| 3 | **게이트웨이로의 데이터 반출 범위 승인** | 보안팀 확인 필요. 현재 전송 항목은 지점명·상호·업종·공개 데이터 기반 사실 문장 (개인정보 없음, RULE-SEC-01) | 보안 |
+| 4 | `LLM_API_KEY`(Virtual Key) 관리 | 서버 `.env`에만 보관 중. Secrets Manager 이관 검토 | 개발·보안 |
+| 5 | USER 비밀번호 평문 저장 → 해싱 전환 검토 | 검토 필요 | 개발·보안 |
+| 6 | 공공 API 키 관리 방안 | AWS Secrets Manager 권장 | 개발 |
+| 7 | HTTPS 미적용 (현재 80 포트) | 로그인 자격증명이 평문 전송된다. 운영 전 필수 조치 | 개발·보안 |
 
 ---
 
@@ -577,24 +595,38 @@ WantedBy=multi-user.target
 
 ### 8.1 인스턴스 권장 사양
 
+**현행 단일 EC2 구성**
+
+| 리소스 | 사양 | 월 추정비용 (서울 리전) | 비고 |
+|--------|------|----------------------|------|
+| **EC2 (통합)** | t3.medium (2 vCPU, 4 GB) | ~$38 | Nginx + serve + FastAPI + PostgreSQL + 배치 |
+| **EBS** | 50 GB gp3 | ~$5 | DB + 배치 스냅샷 |
+| **데이터 전송** | — | ~$5 | |
+| **LiteLLM Gateway** | 사내 게이트웨이 | **별도 확인 필요** | AWS 청구에 포함되지 않음. 사용료 청구 주체·한도를 게이트웨이 관리자에게 확인 |
+| **합계** | — | **~$48/월** | |
+
+**확장 구성 (EC2 분리 + RDS)**
+
 | 리소스 | 사양 | 월 추정비용 (서울 리전) | 비고 |
 |--------|------|----------------------|------|
 | **EC2 Frontend** | t3.small (2 vCPU, 2 GB) | ~$19 | 정적 파일 서빙, 부하 낮음 |
 | **EC2 Backend** | t3.medium (2 vCPU, 4 GB) | ~$38 | API + 배치 프로세스 동시 운영 |
 | **RDS PostgreSQL** | db.t3.medium (2 vCPU, 4 GB) | ~$70 | 20 GB gp3 스토리지 포함 |
-| **AWS Bedrock** | 사용량 기반 | ~$50~200 | 모델·호출량에 따라 변동 |
 | **EBS (Frontend)** | 20 GB gp3 | ~$2 | |
 | **EBS (Backend)** | 50 GB gp3 | ~$5 | 배치 스냅샷 임시 저장 |
 | **데이터 전송** | — | ~$10 | 월 100 GB 기준 |
-| **합계** | — | **~$194~344/월** | |
+| **LiteLLM Gateway** | 사내 게이트웨이 | 별도 확인 필요 | 상동 |
+| **합계 (AWS 항목)** | — | **~$144/월** | |
 
-> MVP 파일럿 단계에서는 위 사양으로 충분합니다. 전행 확산(Phase 3) 시에는 Backend EC2를 t3.large 이상으로 업그레이드하고, RDS Multi-AZ를 활성화하는 것을 권장합니다.
+> **v1.0.0과의 차이** — v1.0.0은 `AWS Bedrock 사용량 기반 ~$50~200/월`을 AWS 비용에 포함했다. 실제로는 사내 LiteLLM Gateway를 경유하므로 **이 프로젝트의 AWS 청구서에 Bedrock 항목이 잡히지 않는다.** 대신 게이트웨이 사용료·호출 한도의 정산 주체를 확인해야 한다.
 
 ### 8.2 확장 시 고려사항
 
 | 단계 | 추가 고려 | 이유 |
 |------|----------|------|
+| MVP | LLM 모델 재검토 (`claude-haiku-4-5`) | `claude-opus-5` 실측 7.4초/건으로 UC-07 5초 미달성 (§4.2) |
 | Phase 2 | Backend EC2 → t3.large (8 GB) | 운영 예측(REQ-10), 상품 안내(REQ-11) 배치 추가 |
+| Phase 2 | RAG 파이프라인 자체 구축 | Bedrock Knowledge Base를 쓰지 않으므로 REQ-11은 직접 구현 필요. 게이트웨이의 `amazon.titan-embed-text-v2:0`(임베딩, 8192 토큰) 활용 가능 |
 | Phase 2 | Redis (ElastiCache) 추가 | 공공 API 캐싱 전용, 서버 메모리 절약 |
 | Phase 3 | ALB + Auto Scaling Group | 전행 확산 시 동시 접속자 증가 대비 |
 | Phase 3 | RDS Multi-AZ 활성화 | 99.5% 가용성 SLA 충족 |
@@ -602,7 +634,7 @@ WantedBy=multi-user.target
 
 ---
 
-## 부록 A. 전체 아키텍처 한눈에 보기
+## 부록 A. 전체 아키텍처 한눈에 보기 (확장 구성)
 
 ```
 ┌──────────────┐         ┌───────────────┐        ┌─────────────────────────────────────┐
@@ -613,23 +645,22 @@ WantedBy=multi-user.target
                               ┌─────────────┐      │  │ EC2     │ API │  EC2          │   │
                               │ 사용자       │      │  │ (Nginx  │     │  (FastAPI     │   │
                               │ (브라우저)    │─────▶│  │  +React)│     │   +Batch)     │   │
-                              └─────────────┘      │  └─────────┘     └──┬─────┬──────┘   │
-                                                   │                     │     │           │
-                                                   │              ┌──────┘     └──────┐   │
-                                                   │              ▼                    ▼   │
-                                                   │  ┌─────────────────┐  ┌─────────────┐│
-                                                   │  │ RDS PostgreSQL  │  │ Bedrock     ││
-                                                   │  │ (Private Subnet)│  │ (AI Agent   ││
-                                                   │  └─────────────────┘  │ + KB)       ││
-                                                   │                       └─────────────┘│
-                                                   │                  ▲                    │
-                                                   │                  │ HTTPS              │
-                                                   │          ┌───────┴────────┐           │
-                                                   │          │  공공 API       │           │
-                                                   │          │  (data.go.kr   │           │
-                                                   │          │   등 8종)       │           │
-                                                   │          └────────────────┘           │
-                                                   └───────────────────────────────────────┘
+                              └─────────────┘      │  └─────────┘     └──┬───────┬────┘   │
+                                                   │                     │       │         │
+                                                   │                     ▼       │         │
+                                                   │      ┌─────────────────┐    │         │
+                                                   │      │ RDS PostgreSQL  │    │         │
+                                                   │      │ (Private Subnet)│    │         │
+                                                   │      └─────────────────┘    │         │
+                                                   └─────────────────────────────┼─────────┘
+                                                                                 │ HTTPS 443
+                                              ┌──────────────────────────────────┴───┐
+                                              ▼                                       ▼
+                                  ┌────────────────────────┐          ┌────────────────────┐
+                                  │ 사내 LiteLLM Gateway    │          │  공공 API           │
+                                  │ /v1/chat/completions   │          │  (data.go.kr 등 8종)│
+                                  │  └─ 백엔드: Bedrock     │          └────────────────────┘
+                                  └────────────────────────┘
 ```
 
 ---
@@ -638,24 +669,35 @@ WantedBy=multi-user.target
 
 배포 전 최종 확인 사항:
 
-- [ ] VPC, Subnet, Internet Gateway 생성 완료
-- [ ] EC2 인스턴스 2대 (Frontend, Backend) 실행 중
-- [ ] RDS PostgreSQL 17 인스턴스 실행 중
-- [ ] Security Group 규칙 적용 완료
-- [ ] SSL 인증서 발급 및 Nginx HTTPS 설정
-- [ ] GitHub Actions Secrets 등록 (SSH Key, EC2 Host)
-- [ ] Frontend: `npm run build` 성공, Nginx 설정 완료
-- [ ] Backend: `requirements.txt` 설치, systemd 서비스 등록
-- [ ] Backend: `.env` 파일 배치 (DB 접속정보, API Key, AWS 설정)
+**인프라**
+- [ ] VPC, Subnet, Internet Gateway 생성 완료 (확장 구성 시)
+- [ ] EC2 인스턴스 실행 중 (현행: 단일 / 확장: Frontend + Backend)
+- [ ] PostgreSQL 18 실행 중 (현행: localhost / 확장: RDS)
+- [ ] Security Group 규칙 적용 완료 — **아웃바운드 443에 LiteLLM Gateway 도달 확인**
+- [ ] SSL 인증서 발급 및 Nginx HTTPS 설정 (**현재 미적용 — §7.4-7**)
+
+**애플리케이션**
+- [ ] Frontend: `npm run build` 성공, `c-maker-frontend` systemd 등록
+- [ ] Backend: `backend/requirements.txt` 설치, `c-maker-api` systemd 등록
+- [ ] `.env` 배치 — DB 접속정보, 공공 API 키, `LLM_BASE_URL`(`.../v1`)·`LLM_API_KEY`·`LLM_MODEL`
+- [ ] `APP_ENV=prod` 확인 (`/api/docs` 비노출)
+- [ ] `FRONTEND_ORIGIN` 지정 — CORS 와일드카드 금지 (OPS-07)
 - [ ] DB: `schema.sql` 실행, BRANCH/USER 초기 데이터 INSERT
-- [ ] Cron: 일간/월간/주간 배치 등록
-- [ ] Bedrock: AI Agent + Knowledge Base 구성 완료
-- [ ] IAM Role: EC2 → Bedrock 접근 권한 확인
-- [ ] 공공 API 키: 8종 서비스 키 발급 및 `.env`에 등록
+- [ ] Cron: `deploy/c-maker.cron` 등록 (일간/월간/지오코딩)
+- [ ] 공공 API 키: data.go.kr 8종 + ECOS·오피넷·VWorld 발급 및 `.env` 등록
+
+**LLM 연동**
+- [ ] `GET /v1/models` 로 게이트웨이 도달 및 모델 가용 확인
+- [ ] 브리프 1건 실호출 성공 — `generation_status="LLM"` 확인 (TEMPLATE 폴백이면 실패)
+- [ ] `LLM_DISABLE_THINKING=true` 적용 확인 (미적용 시 빈 응답)
+- [ ] ~~Bedrock AI Agent + Knowledge Base 구성~~ — **불필요**
+- [ ] ~~IAM Role: EC2 → Bedrock 접근 권한~~ — **불필요**
+
+**운영**
 - [ ] CI/CD: GitHub Actions 워크플로우 테스트 배포 성공
 - [ ] 모니터링: CloudWatch 알람 구성 (CPU, 메모리, 디스크)
-- [ ] 07:30 SLA 테스트: run_daily.py 수동 실행 → 완료 시간 확인
+- [ ] 07:30 SLA 테스트: `run_daily.py` 수동 실행 → 완료 시간 확인 (**LLM 지연 7.4초/건 반영, §4.2**)
 
 ---
 
-*본 보고서는 BranchSense 프로젝트의 agents/*.md 에이전트 정의, docs/* 아키텍처 문서, frontend/ 소스 구성을 기반으로 작성되었습니다.*
+*본 보고서는 C-MAKER 프로젝트의 `agents/*.md` 에이전트 정의, `docs/*` 아키텍처 문서, `backend/`·`frontend/`·`deploy/` 소스 구성을 기반으로 작성되었습니다. LLM 연동 관련 수치는 2026-09-30 LiteLLM Gateway 실호출 결과입니다.*

@@ -197,9 +197,12 @@ ECOS_API_KEY=
 OPINET_API_KEY=
 
 # ── LLM (LiteLLM Gateway, OpenAI-Compatible) ──
-LLM_BASE_URL=https://frontier-llmgw.aipocnhbank.com
-LLM_API_KEY=<Gateway 인증키 — .pem 파일 내 키 문자열 확인 필요>
-LLM_MODEL=claude-opus-4-8
+# base_url은 /v1 까지 포함한다 (openai 패키지가 /chat/completions를 붙인다)
+LLM_BASE_URL=https://frontier-llmgw.aipocnhbank.com/v1
+LLM_API_KEY=<LiteLLM Virtual Key, sk-...>
+LLM_MODEL=claude-opus-5
+LLM_TIMEOUT_SECONDS=15
+LLM_DISABLE_THINKING=true
 
 # ── 배치 ──
 BATCH_COOLDOWN_MINUTES=30
@@ -230,7 +233,9 @@ ECOS_API_KEY=
 OPINET_API_KEY=
 LLM_BASE_URL=
 LLM_API_KEY=
-LLM_MODEL=claude-opus-4-8
+LLM_MODEL=claude-opus-5
+LLM_TIMEOUT_SECONDS=15
+LLM_DISABLE_THINKING=true
 BATCH_COOLDOWN_MINUTES=30
 FRONTEND_ORIGIN=http://localhost
 ```
@@ -495,25 +500,60 @@ idx_batch_run_status            ON batch_run(status)
 
 ## 8. LLM 연동 (브리프 생성)
 
+> **연동 검증 완료 (2026-09-30)** — 아래 값은 게이트웨이에 실제 호출해 확인한 결과다.
+
 ### 8.1 구성
 
-- **Gateway**: LiteLLM Gateway (`https://frontier-llmgw.aipocnhbank.com`)
+- **Endpoint**: `POST https://frontier-llmgw.aipocnhbank.com/v1/chat/completions`
 - **프로토콜**: OpenAI-Compatible API (Chat Completion)
-- **라이브러리**: `openai` Python 패키지 (`base_url` 변경)
-- **모델**: `claude-opus-4-8` (변경 가능)
-- **인증**: API Key (`.pem`/`.ppk` 기반 — Gateway 관리자에게 키 문자열 형식 확인 필요)
+- **라이브러리**: `openai==1.109.1` (`base_url`을 `.../v1` 로 지정)
+- **인증**: LiteLLM Virtual Key — `Authorization: Bearer sk-...`
+- **모델**: `claude-opus-5`
 
-### 8.2 호출 방식
+`GET /v1/models` 로 확인한 제공 모델:
+
+| 모델 ID | mode | max_input | max_output |
+|---|---|---|---|
+| `claude-opus-5` | chat | 1,000,000 | 128,000 |
+| `claude-sonnet-5` | chat | 1,000,000 | 128,000 |
+| `claude-opus-4-8` | chat | 1,000,000 | 128,000 |
+| `claude-haiku-4-5-20251001-v1:0` | chat | 200,000 | 64,000 |
+| `global.anthropic.claude-fable-5-1` | chat | 200,000 | 64,000 |
+| `nova-2-lite-v1:0` | — | — | — |
+| `amazon.titan-embed-text-v2:0` | embedding | 8,192 | — |
+| `stability.stable-image-ultra-v1:1` | image_generation | 77 | — |
+
+> `amazon.titan-embed-text-v2:0`은 REQ-11(상품설명서 RAG, Phase 2) 임베딩에 쓸 수 있다.
+
+### 8.2 게이트웨이 제약 (실측)
+
+| 제약 | 내용 | 대응 |
+|---|---|---|
+| `temperature` | `claude-opus-5`·`claude-opus-4-8` 모두 `temperature=1` 만 허용. 그 외 값은 HTTP 400 `litellm.UnsupportedParamsError` | `temperature`를 **보내지 않는다**. PRIN-08 재현성은 temperature로 확보 불가 |
+| extended thinking | 기본 ON. thinking 토큰이 `max_tokens`를 먼저 소진해 `finish_reason="length"` + `content=""` 반환 | 요청 본문에 `"thinking": {"type": "disabled"}` 전달 (`LLM_DISABLE_THINKING=true`) |
+| `reasoning_effort` | `"none"` 을 줘도 thinking이 꺼지지 않는다 | 사용하지 않음 |
+| 지연 | thinking 비활성 기준 약 30토큰/초 (112토큰 3.7초, 216토큰 7.4초) | `LLM_TIMEOUT_SECONDS=15` (400토큰 상한 ≈ 14초) |
+
+### 8.3 호출 방식
 
 ```
 briefing/llm_client.py
-  └─ openai.OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
-     └─ client.chat.completions.create(model=LLM_MODEL, messages=[...])
+  └─ openai.OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=15, max_retries=1)
+     └─ client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{system}, {user}],
+            max_tokens=BriefingConfig.max_output_tokens,   # 400
+            extra_body={"thinking": {"type": "disabled"}},
+        )
 ```
 
-확정된 RECOMMENDATION 데이터를 시스템 프롬프트에 넣어 Chat Completion으로 생성한다.
+확정된 RECOMMENDATION의 사실 문장만 user 메시지에 넣어 Chat Completion으로 생성한다.
+응답은 `{"script": ["문장1", ...]}` JSON으로 받아 `brief_generator.parse_script()`가 파싱한다
+(실측: 실제 프롬프트로 216 completion tokens, 유효 JSON 반환 확인).
 
-### 8.3 citation guard (RULE-BRIEF-02)
+빈 응답·타임아웃·400은 `LlmUnavailableError`로 올려 `TEMPLATE` 정형 화법으로 대체한다.
+
+### 8.4 citation guard (RULE-BRIEF-02)
 
 - 프롬프트에 "주어진 데이터 외의 사실을 인용하지 마라" 지시
 - 출처 태그 `[소스명·기준일]` 포맷 필수 강제
@@ -850,7 +890,9 @@ cd frontend && npm ci && npm run build
 | **LLM 호출 경로** | AWS Bedrock AI Agent + Action Group + Knowledge Base (`2-prd.md` §5, `4-project-principle.md` §2) | LiteLLM Gateway + `openai` 패키지 + Chat Completion API | 실제 제공된 LLM 환경이 Bedrock 직접 호출이 아닌 LiteLLM Gateway(OpenAI-Compatible) |
 | **briefing 파일명** | `bedrock_agent_client.py` (`4-project-principle.md` §6) | `llm_client.py` | Bedrock Agent 전용이 아니므로 범용 이름으로 변경 |
 | **LLM 의존성** | `boto3` (IAM 자격증명 기반) | `openai` 패키지 (`base_url` 변경), boto3 불필요 | Gateway가 인증을 중계하므로 AWS SDK 불필요 |
-| **OPS-01 환경변수** | IAM 역할/자격증명, Agent ID, KB ID (`4-project-principle.md` §5) | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Gateway 방식이므로 IAM 대신 API Key |
+| **OPS-01 환경변수** | IAM 역할/자격증명, Agent ID, KB ID (`4-project-principle.md` §5) | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_DISABLE_THINKING` | Gateway 방식이므로 IAM 대신 Virtual Key |
+| **PRIN-08 재현성** | `temperature=0` 으로 동일 입력 → 동일 출력 | `temperature` 미전송 (게이트웨이가 `temperature=1` 외 거부) | §8.2 실측 제약. 재현성은 프롬프트·사실 문장 고정으로만 확보 |
+| **UC-07 브리프 생성 5초** | 브리프 1건 5초 이내 | 실측 7.4초 (216토큰) — 5초 미달성 | §8.2 실측. 07:30 SLA 재산정 필요 |
 | **OPS-06 호출 격리** | Bedrock AI Agent 호출로 한정 (`4-project-principle.md` §5) | LiteLLM Gateway Chat Completion으로 한정 — `briefing`/`campaign` 모듈에서만 호출하는 원칙은 동일 | 호출 대상만 변경, 격리 원칙 유지 |
 | **RAG (상품설명서)** | Bedrock Knowledge Base에 색인, Agent가 직접 조회 (`2-prd.md` §5) | MVP에서는 미구현 (REQ-11은 Phase 2). 필요 시 별도 RAG 파이프라인 구축 | Agent/KB 연동이 없으므로 자체 구축 필요, Phase 2에서 결정 |
 
@@ -865,8 +907,9 @@ cd frontend && npm ci && npm run build
 | 1 | 지방행정 인허가 변동분 API 신청 (N-1) | ❌ 미신청 | 즉시 data.go.kr 활용신청 |
 | 2 | S-1 좌표계·사업자번호 제공 여부 | 미확인 | 테스트 호출로 확인 |
 | 3 | ECOS / 오피넷 별도 포털 가입 | 미완료 | ecos.bok.or.kr, opinet.co.kr |
-| 4 | LiteLLM Gateway 인증키 형식 | `.pem`/`.ppk` → 키 문자열 확인 필요 | Gateway 관리자 확인 |
-| 5 | LLM 모델 확정 | `claude-opus-4-8` (변경 가능) | opus 계열 내 최종 선택 |
+| 4 | ~~LiteLLM Gateway 인증키 형식~~ | ✅ **해소(2026-09-30)** — Virtual Key(`sk-...`)를 `Authorization: Bearer`로 전송. 실제 호출 성공 | — |
+| 5 | ~~LLM 모델 확정~~ | ✅ **해소(2026-09-30)** — `claude-opus-5` | 제공 모델 목록은 §8.1 |
+| 6 | UC-07 "브리프 1건 5초" 미달성 | ⚠️ 실측 7.4초 (§8.2) | 07:30 SLA 재산정 또는 `claude-haiku-4-5` 전환 검토 |
 
 ### 17.1 해소된 인프라 사항 (2026-09-29)
 
