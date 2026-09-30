@@ -1,14 +1,24 @@
 # /etc/cron.d/c-maker  (docs/10-implementation-guide.md §10.3)
-#   sudo cp deploy/c-maker.cron /etc/cron.d/c-maker && sudo chmod 644 /etc/cron.d/c-maker
-# 서버 시간대가 Asia/Seoul이 아니면 CRON_TZ로 한국 시간을 지정한다.
-CRON_TZ=Asia/Seoul
+#   sudo install -o root -g root -m 644 deploy/c-maker.cron /etc/cron.d/c-maker
+#   sudo systemctl restart cron
+#
+# ⚠ 시각은 KST 기준이다. 서버 타임존이 Asia/Seoul이어야 한다.
+#   확인: timedatectl   /   설정: sudo timedatectl set-timezone Asia/Seoul
+#
+#   Ubuntu의 cron(3.0pl1)은 CRON_TZ / TZ 로 스케줄 타임존을 지정할 수 없다.
+#   `man 5 crontab` LIMITATIONS: 크론탭의 TZ는 실행되는 명령의 환경변수에만 적용되고
+#   작업 실행 시각에는 영향을 주지 않는다. 즉 스케줄은 항상 서버 타임존을 따른다.
+#   서버가 UTC인 환경에 배포할 때는 아래 시각을 UTC로 환산해야 한다(일간 06:00 KST = 21:00 UTC 전일).
+#
+# ※ /etc/cron.d 형식이므로 5개 시각 필드 뒤에 실행 사용자(ubuntu)가 들어간다.
+#   `crontab -e`(사용자 크론탭)에 그대로 붙여넣으면 사용자 필드 때문에 실패한다.
 SHELL=/bin/bash
 
-# 일간 배치 — 매일 06:00 (07:30 SLA)
+# 일간 배치 — 매일 06:00 KST (07:30 SLA)
 0 6 * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_daily >> /var/log/c-maker/cron-daily.log 2>&1
 
-# 월간 모집단 적재 — 매월 1일 01:00
+# 월간 모집단 적재 — 매월 1일 01:00 KST
 0 1 1 * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_monthly >> /var/log/c-maker/cron-monthly.log 2>&1
 
-# 지점 좌표 지오코딩 — 10분마다
+# 지점 좌표 지오코딩 — 10분마다 (타임존 무관)
 */10 * * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.geocoding.geocode_job >> /var/log/c-maker/cron-geocode.log 2>&1

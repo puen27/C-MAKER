@@ -660,23 +660,77 @@ API 서버의 `batch.service.py`가 `subprocess.Popen`으로 `run_daily.py`를 �
 
 ### 10.3 cron 스케줄
 
+> **현행 확인 (2026-09-30)**: `/etc/cron.d/c-maker`로 등록 완료. 저장소의 `deploy/c-maker.cron`이 기준 파일이다.
+
+**⚠ 서버 타임존이 Asia/Seoul이어야 한다.**
+
+Ubuntu의 cron(3.0pl1)은 **`CRON_TZ`/`TZ`로 스케줄 타임존을 지정할 수 없다.** `man 5 crontab` LIMITATIONS 절에 따르면 크론탭의 `TZ`는 실행되는 명령의 환경변수에만 적용되고 작업 실행 시각에는 영향을 주지 않는다. 스케줄은 항상 서버 타임존을 따른다.
+
+EC2 기본값은 `Etc/UTC`이므로 그대로 두면 `0 6 * * *`이 **15:00 KST**에 돌아 07:30 SLA를 놓친다. 서버 타임존을 먼저 맞춘다.
+
 ```bash
-# 일간 배치 — 매일 06:00
-0 6 * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_daily >> /var/log/c-maker/daily.log 2>&1
+sudo timedatectl set-timezone Asia/Seoul
+timedatectl    # Time zone: Asia/Seoul (KST, +0900) 확인
+```
 
-# 월간 모집단 적재 — 매월 1일 01:00
-0 1 1 * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_monthly >> /var/log/c-maker/monthly.log 2>&1
+> 서버를 UTC로 유지해야 하는 환경이라면 시각을 UTC로 환산한다(일간 06:00 KST = `0 21 * * *`, 전일 21:00 UTC).
+> PostgreSQL은 `postgresql.conf`에 `timezone`/`log_timezone`이 `Etc/UTC`로 고정돼 있어 OS 타임존을 따라가지 않는다. 앱의 업무 날짜는 `common/config.py`의 `now_kst()`/`today_kst()`가 `ZoneInfo("Asia/Seoul")`을 명시하므로 OS 타임존과 무관하다.
 
-# 지오코딩 — 10분마다
-*/10 * * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.geocoding.geocode_job >> /var/log/c-maker/geocode.log 2>&1
+**등록 — 사용자 크론탭(`crontab -e`)이 아니라 `/etc/cron.d`를 쓴다.**
+
+아래 항목은 시각 필드 5개 뒤에 **실행 사용자(`ubuntu`)**가 들어가는 `/etc/cron.d` 형식이다. `crontab -e`에 그대로 붙여넣으면 사용자 필드 때문에 실패한다.
+
+```bash
+sudo install -o root -g root -m 644 deploy/c-maker.cron /etc/cron.d/c-maker
+sudo systemctl restart cron
+```
+
+> **⚠ 줄끝은 LF여야 한다.** CRLF면 cron이 `Error: bad minute`을 내고 **파일 전체를 무시한다.** 아무 로그도 남지 않아 조용히 배치가 죽는다(2026-09-30 실제 발생).
+> 저장소에 `.gitattributes`로 `deploy/* text eol=lf`를 걸어 두었으나, Windows에서 편집한 파일을 `scp`로 직접 올릴 때는 여전히 깨질 수 있다. 설치 후 아래로 확인한다.
+>
+> ```bash
+> file /etc/cron.d/c-maker          # "CRLF line terminators"가 나오면 안 된다
+> sudo sed -i 's/\r$//' /etc/cron.d/c-maker && sudo systemctl restart cron   # 깨졌을 때 교정
+> sudo journalctl -u cron --since '-1min' | grep -iE 'error|syntax'          # 출력이 없어야 정상
+> ```
+
+```bash
+# 시각은 KST 기준 (서버 TZ = Asia/Seoul 전제)
+SHELL=/bin/bash
+
+# 일간 배치 — 매일 06:00 KST (07:30 SLA)
+0 6 * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_daily >> /var/log/c-maker/cron-daily.log 2>&1
+
+# 월간 모집단 적재 — 매월 1일 01:00 KST
+0 1 1 * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.run_monthly >> /var/log/c-maker/cron-monthly.log 2>&1
+
+# 지오코딩 — 10분마다 (타임존 무관)
+*/10 * * * * ubuntu cd /home/ubuntu/c-maker && .venv/bin/python -m backend.batch.geocoding.geocode_job >> /var/log/c-maker/cron-geocode.log 2>&1
+```
+
+리다이렉트 대상이 `cron-*.log`인 이유는 §10.4를 참고한다. `LOG_DIR`이 설정되면 배치가 직접 `daily.log`·`monthly.log`·`geocode.log`에 쓰기 때문에, cron 리다이렉트를 같은 이름으로 두면 한 파일에 두 경로가 섞인다.
+
+**등록 확인**
+
+```bash
+sudo journalctl -u cron --since '-15min' | grep CMD    # 실행 이력
+tail -5 /var/log/c-maker/geocode.log                   # 10분 주기 잡이 가장 먼저 찍힌다
 ```
 
 ### 10.4 배치 로그
 
 Python `logging` 모듈로 구조화 로그 (OPS-08):
-- 파일 출력: `/var/log/c-maker/*.log`
-- stdout 출력: cron이 stderr 캡처
 - 기록 항목: 단계별 처리 건수, 소요시간, 실패 소스명
+- 타임스탬프는 `log_setup.py`가 **UTC로 고정**해 찍는다(`datetime.fromtimestamp(record.created, UTC)`). 서버 타임존을 KST로 바꿔도 로그의 `ts`는 `+00:00`을 유지하므로 과거 로그와 형식이 섞이지 않는다.
+
+`.env`의 `LOG_DIR` 설정에 따라 출력 위치가 갈린다.
+
+| `LOG_DIR` | 출력 |
+|---|---|
+| 설정됨 (예: `/var/log/c-maker`) | `<LOG_DIR>/<name>.log`에 **파일로만** 쓴다 — `daily.log`, `monthly.log`, `geocode.log`, `api.log` |
+| 비어 있음 | stdout (cron 리다이렉트·journald가 수집) |
+
+> `LOG_DIR`이 설정된 상태에서는 배치가 이미 `daily.log`에 직접 쓰므로, cron 리다이렉트는 **다른 이름**(`cron-daily.log`)으로 둔다(§10.3). 같은 이름을 쓰면 한 파일에 두 경로가 섞인다. `cron-*.log`에는 정상 동작 시 아무것도 남지 않고, 파이썬이 뜨기 전에 죽는 경우(경로 오류, venv 누락 등)의 stderr만 잡힌다.
 
 ```bash
 sudo mkdir -p /var/log/c-maker
