@@ -11,6 +11,7 @@
 |---|---|---|
 | v1.0.0 | 2026-09-29 | 최초 작성 (EC2 2대 + RDS + Bedrock 직접 호출 가정) |
 | v2.0.0 | 2026-09-30 | **LLM 경로를 LiteLLM Gateway로 정정**(실호출 검증 완료). 제품명 C-MAKER 반영, 현행 단일 EC2 구성과 확장 구성을 §1.3에서 분리, 런타임 버전 현행화(Python 3.14.4 / PostgreSQL 18.6 / Node v24), Bedrock 직접 연동 전제의 IAM Role·AI Agent·Knowledge Base 작업 항목 제거 |
+| v2.0.1 | 2026-09-30 | **EC2 실연동 검증 반영.** v2.0.0의 "UC-07 5초 미달성" 판단을 철회 — 개발 PC 지연(7.4초)을 근거로 삼은 오판이었고, EC2 실측은 median 3.77초로 충족한다(§4.2). 타임아웃 권장값 15초 → 10초 |
 
 > **이 보고서의 위치**
 > `docs/10-implementation-guide.md`(v2.2.0)가 **현재 배포된 단일 EC2 구성의 최종 기준**이다.
@@ -70,7 +71,9 @@ v1.0.0에서는 EC2가 Bedrock을 직접 호출하는 것으로 기술했으나,
 - **VPC PrivateLink 대상이 Bedrock이 아니라 게이트웨이**다. 보안 검토 대상이 바뀐다(§7.4).
 - **AWS 비용에 Bedrock 항목이 잡히지 않는다.** 게이트웨이 사용료의 청구 주체는 별도 확인이 필요하다(§8.1).
 
-게이트웨이 제약과 그에 따른 코드 대응은 `docs/10-implementation-guide.md` §8.2에 정리되어 있다(요약: `temperature=0` 거부 → 미전송, extended thinking 기본 ON → `thinking: {"type": "disabled"}` 전달, 지연 약 30토큰/초 → 타임아웃 15초).
+게이트웨이 제약과 그에 따른 코드 대응은 `docs/10-implementation-guide.md` §8.2에 정리되어 있다(요약: `temperature=0` 거부 → 미전송, extended thinking 기본 ON → `thinking: {"type": "disabled"}` 전달, 타임아웃 10초).
+
+**EC2 연동 검증 완료 (2026-09-30)** — `ip-10-49-0-19`에서 `generate_brief()`를 직접 실행해 브리프 5건을 생성했고, 전부 `generation_status="LLM"`으로 통과했다(TEMPLATE 폴백 없음). DNS 해석·아웃바운드 443·Virtual Key 인증 모두 정상이며 프록시 설정은 필요하지 않았다. 상세는 `docs/10-implementation-guide.md` §8.4~8.5.
 
 ### 1.3 현행 구성과 확장 구성
 
@@ -333,7 +336,11 @@ v1.0.0에서는 EC2가 Bedrock을 직접 호출하는 것으로 기술했으나,
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> **⚠ SLA 리스크** — LiteLLM Gateway 실측 지연은 약 30토큰/초로, 브리프 1건에 7.4초가 걸렸다(216 출력 토큰). `UC-07`의 "브리프 1건 5초 이내"를 충족하지 못한다. TOP 20 × 파일럿 지점 수만큼 곱해지므로 **07:30 SLA 재산정 또는 `claude-haiku-4-5` 전환 검토가 필요하다**(`docs/10-implementation-guide.md` §17-6).
+> **브리프 1건 지연 (EC2 실측, 2026-09-30)** — median 3.77초 / max 4.61초 (n=5, `claude-opus-5`, thinking 비활성). `UC-07`의 "브리프 1건 5초 이내"를 **충족한다**.
+>
+> 게이트웨이 IP가 AWS 서울 리전(`3.39.77.44`, `43.202.16.2`)이라 EC2에서는 같은 리전 통신이 된다. 개발 PC에서 같은 호출이 7.4초였으므로 **로컬 수치로 SLA를 판단하면 미달로 오판한다.**
+>
+> ⚠ 다만 **07:30 배치 전체 SLA는 아직 미측정**이다. TOP 20 × 파일럿 지점 수만큼 곱해지므로, 지점 수가 확정되면 `run_daily.py` 전체 실행 시간을 측정해야 한다(`docs/10-implementation-guide.md` §17-7).
 
 ### 4.3 모집단 적재 흐름 (월 1회)
 
@@ -544,7 +551,7 @@ main (production)
 | 5 | **Security Group 설정** | §3.3 / 현행은 구현가이드 §1.2 | ✅ 적용 | 필수 |
 | 6 | ~~**IAM Role (EC2 → Bedrock)**~~ | **제거됨** — Bedrock 직접 호출 없음(§1.2) | 불필요 | 불필요 |
 | 7 | ~~**AWS Bedrock 설정**~~ | **제거됨** — AI Agent·Knowledge Base 구성 불필요(§1.2) | 불필요 | 불필요 |
-| 8 | **LiteLLM Gateway 연결 확인** | 아웃바운드 443 허용 + Virtual Key 주입 | ✅ 실호출 검증 (2026-09-30) | 필수 |
+| 8 | **LiteLLM Gateway 연결 확인** | DNS + 아웃바운드 443 + Virtual Key | ✅ **EC2 검증 완료** (브리프 5/5 `LLM`, 2026-09-30) | 필수 |
 | 9 | **SSL 인증서** | ACM 또는 Let's Encrypt, HTTPS 적용 | ❌ 미적용 (현재 80만 사용) | 필수 |
 | 10 | **도메인 설정** | Route 53 또는 기존 DNS에 A/CNAME 레코드 | 미설정 | 권장 |
 | 11 | **CloudWatch 설정** | EC2/RDS 모니터링, 알람 구성 | 미설정 | 권장 |
@@ -560,7 +567,7 @@ main (production)
 | 5 | **BRANCH/USER 초기 데이터** | 운영자가 psql로 직접 INSERT (REQ-01) | 필수 |
 | 6 | **공공 API 키 발급** | data.go.kr 서비스 키 + ECOS·오피넷·VWorld 별도 포털 | 필수 |
 | 7 | ~~**Bedrock AI Agent 구성**~~ | **제거됨** — Action Group·KB 색인 불필요(§1.2) | 불필요 |
-| 8 | **LLM 게이트웨이 설정 검증** | `LLM_DISABLE_THINKING=true`, `LLM_TIMEOUT_SECONDS=15` (구현가이드 §8.2) | 필수 |
+| 8 | **LLM 게이트웨이 설정 검증** | `LLM_DISABLE_THINKING=true`, `LLM_TIMEOUT_SECONDS=10` (구현가이드 §8.2) | ✅ 완료 |
 | 9 | **Nginx 설정 파일** | `deploy/c-maker.nginx.conf` 적용 | 필수 |
 | 10 | **systemd 서비스 등록** | `deploy/c-maker-api.service`, `c-maker-frontend.service` | 필수 |
 | 11 | **cron 등록** | `deploy/c-maker.cron` — 일간/월간/지오코딩 | 필수 |
@@ -624,7 +631,7 @@ main (production)
 
 | 단계 | 추가 고려 | 이유 |
 |------|----------|------|
-| MVP | LLM 모델 재검토 (`claude-haiku-4-5`) | `claude-opus-5` 실측 7.4초/건으로 UC-07 5초 미달성 (§4.2) |
+| MVP | 07:30 배치 전체 실행 시간 측정 | 브리프 1건은 EC2 실측 3.77초로 UC-07 충족(§4.2). 전체 SLA는 지점 수 확정 후 측정 필요. 초과 시 `claude-haiku-4-5` 전환 검토 |
 | Phase 2 | Backend EC2 → t3.large (8 GB) | 운영 예측(REQ-10), 상품 안내(REQ-11) 배치 추가 |
 | Phase 2 | RAG 파이프라인 자체 구축 | Bedrock Knowledge Base를 쓰지 않으므로 REQ-11은 직접 구현 필요. 게이트웨이의 `amazon.titan-embed-text-v2:0`(임베딩, 8192 토큰) 활용 가능 |
 | Phase 2 | Redis (ElastiCache) 추가 | 공공 API 캐싱 전용, 서버 메모리 절약 |

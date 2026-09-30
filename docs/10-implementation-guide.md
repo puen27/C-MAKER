@@ -201,7 +201,7 @@ OPINET_API_KEY=
 LLM_BASE_URL=https://frontier-llmgw.aipocnhbank.com/v1
 LLM_API_KEY=<LiteLLM Virtual Key, sk-...>
 LLM_MODEL=claude-opus-5
-LLM_TIMEOUT_SECONDS=15
+LLM_TIMEOUT_SECONDS=10
 LLM_DISABLE_THINKING=true
 
 # ── 배치 ──
@@ -234,7 +234,7 @@ OPINET_API_KEY=
 LLM_BASE_URL=
 LLM_API_KEY=
 LLM_MODEL=claude-opus-5
-LLM_TIMEOUT_SECONDS=15
+LLM_TIMEOUT_SECONDS=10
 LLM_DISABLE_THINKING=true
 BATCH_COOLDOWN_MINUTES=30
 FRONTEND_ORIGIN=http://localhost
@@ -532,7 +532,7 @@ idx_batch_run_status            ON batch_run(status)
 | `temperature` | `claude-opus-5`·`claude-opus-4-8` 모두 `temperature=1` 만 허용. 그 외 값은 HTTP 400 `litellm.UnsupportedParamsError` | `temperature`를 **보내지 않는다**. PRIN-08 재현성은 temperature로 확보 불가 |
 | extended thinking | 기본 ON. thinking 토큰이 `max_tokens`를 먼저 소진해 `finish_reason="length"` + `content=""` 반환 | 요청 본문에 `"thinking": {"type": "disabled"}` 전달 (`LLM_DISABLE_THINKING=true`) |
 | `reasoning_effort` | `"none"` 을 줘도 thinking이 꺼지지 않는다 | 사용하지 않음 |
-| 지연 | thinking 비활성 기준 약 30토큰/초 (112토큰 3.7초, 216토큰 7.4초) | `LLM_TIMEOUT_SECONDS=15` (400토큰 상한 ≈ 14초) |
+| 지연 | **호출 위치에 따라 크게 다르다.** EC2에서 3.24~4.61초 / 개발 PC에서 7.4초 (§8.5) | `LLM_TIMEOUT_SECONDS=10` (EC2 실측 max의 약 2배) |
 
 ### 8.3 호출 방식
 
@@ -553,7 +553,30 @@ briefing/llm_client.py
 
 빈 응답·타임아웃·400은 `LlmUnavailableError`로 올려 `TEMPLATE` 정형 화법으로 대체한다.
 
-### 8.4 citation guard (RULE-BRIEF-02)
+### 8.4 EC2 연동 검증 결과 (2026-09-30)
+
+EC2(`ip-10-49-0-19`)에서 `.venv/bin/python`으로 `generate_brief()`를 직접 호출해 검증했다. DB는 사용하지 않았다.
+
+| 항목 | 결과 |
+|---|---|
+| DNS | `frontier-llmgw.aipocnhbank.com` → `3.39.77.44`, `43.202.16.2` (정상) |
+| 아웃바운드 443 | 도달 확인. 프록시 설정 불필요 (`no proxy vars`) |
+| 인증 | Virtual Key로 200 응답 |
+| `generation_status` | **5건 모두 `LLM`** (TEMPLATE 폴백 없음) |
+| `model_version` | `claude-opus-5` |
+| citation guard | `validation_errors` 없음 3건, "화법 4문장 → 3문장 절삭" 2건 (정상 동작) |
+
+### 8.5 지연 실측 — 호출 위치에 따라 2배 차이
+
+| 위치 | n | min | median | max | UC-07 5초 초과 |
+|---|---|---|---|---|---|
+| **EC2 (서울 리전)** | 5 | 3.24초 | 3.77초 | 4.61초 | **0/5** |
+| 개발 PC (사내망 → 인터넷) | 1 | — | 7.4초 | — | 초과 |
+
+게이트웨이 IP가 AWS 서울 리전(`3.39.x`, `43.202.x`)이라 EC2에서는 같은 리전 내 통신이 된다.
+**UC-07의 "브리프 1건 5초 이내"는 EC2에서 충족된다.** 개발 PC 기준 수치로 SLA를 판단하면 안 된다.
+
+### 8.6 citation guard (RULE-BRIEF-02)
 
 - 프롬프트에 "주어진 데이터 외의 사실을 인용하지 마라" 지시
 - 출처 태그 `[소스명·기준일]` 포맷 필수 강제
@@ -892,7 +915,7 @@ cd frontend && npm ci && npm run build
 | **LLM 의존성** | `boto3` (IAM 자격증명 기반) | `openai` 패키지 (`base_url` 변경), boto3 불필요 | Gateway가 인증을 중계하므로 AWS SDK 불필요 |
 | **OPS-01 환경변수** | IAM 역할/자격증명, Agent ID, KB ID (`4-project-principle.md` §5) | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_DISABLE_THINKING` | Gateway 방식이므로 IAM 대신 Virtual Key |
 | **PRIN-08 재현성** | `temperature=0` 으로 동일 입력 → 동일 출력 | `temperature` 미전송 (게이트웨이가 `temperature=1` 외 거부) | §8.2 실측 제약. 재현성은 프롬프트·사실 문장 고정으로만 확보 |
-| **UC-07 브리프 생성 5초** | 브리프 1건 5초 이내 | 실측 7.4초 (216토큰) — 5초 미달성 | §8.2 실측. 07:30 SLA 재산정 필요 |
+| **UC-07 브리프 생성 5초** | 브리프 1건 5초 이내 | **충족** — EC2 실측 median 3.77초 / max 4.61초 (n=5) | §8.5. 개발 PC(7.4초) 기준으로 판단하면 미달로 오판한다 |
 | **OPS-06 호출 격리** | Bedrock AI Agent 호출로 한정 (`4-project-principle.md` §5) | LiteLLM Gateway Chat Completion으로 한정 — `briefing`/`campaign` 모듈에서만 호출하는 원칙은 동일 | 호출 대상만 변경, 격리 원칙 유지 |
 | **RAG (상품설명서)** | Bedrock Knowledge Base에 색인, Agent가 직접 조회 (`2-prd.md` §5) | MVP에서는 미구현 (REQ-11은 Phase 2). 필요 시 별도 RAG 파이프라인 구축 | Agent/KB 연동이 없으므로 자체 구축 필요, Phase 2에서 결정 |
 
@@ -909,7 +932,8 @@ cd frontend && npm ci && npm run build
 | 3 | ECOS / 오피넷 별도 포털 가입 | 미완료 | ecos.bok.or.kr, opinet.co.kr |
 | 4 | ~~LiteLLM Gateway 인증키 형식~~ | ✅ **해소(2026-09-30)** — Virtual Key(`sk-...`)를 `Authorization: Bearer`로 전송. 실제 호출 성공 | — |
 | 5 | ~~LLM 모델 확정~~ | ✅ **해소(2026-09-30)** — `claude-opus-5` | 제공 모델 목록은 §8.1 |
-| 6 | UC-07 "브리프 1건 5초" 미달성 | ⚠️ 실측 7.4초 (§8.2) | 07:30 SLA 재산정 또는 `claude-haiku-4-5` 전환 검토 |
+| 6 | ~~UC-07 "브리프 1건 5초" 미달성~~ | ✅ **해소(2026-09-30)** — EC2 실측 median 3.77초로 충족(§8.5). 개발 PC 수치(7.4초)로 인한 오판이었다 | 07:30 전체 SLA는 TOP20 × 지점 수로 별도 측정 필요 |
+| 7 | 07:30 배치 전체 SLA | 미측정 | 브리프 1건은 확인. 파일럿 지점 수 확정 후 `run_daily.py` 전체 실행 시간 측정 |
 
 ### 17.1 해소된 인프라 사항 (2026-09-29)
 

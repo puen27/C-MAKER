@@ -75,11 +75,12 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_api_key: str = ""
     llm_model: str = "claude-opus-5"
-    # 게이트웨이 호출 타임아웃(초). 실측(2026-09-30, claude-opus-5, thinking 비활성):
-    #   출력 112토큰 → 3.7초 / 216토큰 → 7.4초. 대략 30토큰/초.
-    # BriefingConfig.max_output_tokens=400 상한이면 약 14초까지 걸릴 수 있어 15초로 둔다.
-    # ⚠ UC-07의 "브리프 1건 5초 이내"는 이 게이트웨이에서 충족되지 않는다 — 07:30 SLA 재산정 필요.
-    llm_timeout_seconds: float = 15.0
+    # 게이트웨이 호출 타임아웃(초).
+    # EC2 실측(2026-09-30, claude-opus-5, thinking 비활성, generate_brief 5건):
+    #   min 3.24초 / median 3.77초 / max 4.61초 → UC-07 "브리프 1건 5초 이내" 충족.
+    # 개발 PC에서는 같은 호출이 7.4초였다. 게이트웨이가 EC2와 같은 리전에 있어 서버에서만 빠르다.
+    # max_output_tokens=400 상한을 감안해 실측 max의 약 2배로 여유를 둔다.
+    llm_timeout_seconds: float = 10.0
     llm_max_concurrency: int = 4
     # claude-opus-5 / claude-opus-4-8은 extended thinking이 기본 ON이고, thinking 토큰이
     # max_tokens를 먼저 소진해 content가 빈 문자열로 돌아온다(게이트웨이 실측).
