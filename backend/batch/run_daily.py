@@ -478,7 +478,33 @@ def target_branch(
 
 def generate_briefs(jobs: list[BriefJob], llm: LlmClient | None, config: PipelineConfig) -> list[BriefContent]:
     def run_job(job: BriefJob) -> BriefContent:
-        return generate_brief(job.brief_input, reason_summary=job.reason_summary, llm=llm, config=config.briefing)
+        try:
+            return generate_brief(
+                job.brief_input,
+                reason_summary=job.reason_summary,
+                llm=llm,
+                config=config.briefing,
+            )
+        except Exception:  # noqa: BLE001 — job 하나의 비결정적 생성 실패를 다른 브리프와 격리한다.
+            logger.exception(
+                "브리프 생성 실패 — 정형 화법 재시도: recommendation_id=%s",
+                job.brief_input.recommendation_id,
+            )
+            # 결정론적 TEMPLATE 생성까지 실패하면 예외를 전파해 기존 전체 실패 처리를 따른다.
+            fallback = generate_brief(
+                job.brief_input,
+                reason_summary=job.reason_summary,
+                llm=None,
+                config=config.briefing,
+            )
+            return fallback.model_copy(
+                update={
+                    "validation_errors": [
+                        *fallback.validation_errors,
+                        "브리프 생성 예외 — 정형 화법으로 대체",
+                    ]
+                }
+            )
 
     if llm is None or len(jobs) <= 1:
         return [run_job(job) for job in jobs]

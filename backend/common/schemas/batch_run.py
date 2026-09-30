@@ -52,7 +52,7 @@ class SourceFreshness(ApiModel):
 
 class DataFreshnessResponse(ApiModel):
     reference_date: date
-    # 배너 노출 여부 — 소스 폴백으로 기준일이 밀렸거나, 오늘 배치가 실패/미완료인 경우
+    # 배너 노출 여부 — 소스 수집 불가·지연, 배치 실패/미완료, 오늘 명부 미생성인 경우
     delayed: bool
     max_delay_days: int
     todays_list_ready: bool

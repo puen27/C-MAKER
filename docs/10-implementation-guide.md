@@ -538,7 +538,7 @@ idx_batch_run_status            ON batch_run(status)
 
 ```
 briefing/llm_client.py
-  └─ openai.OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=15, max_retries=1)
+  └─ openai.OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=10, max_retries=1)
      └─ client.chat.completions.create(
             model=LLM_MODEL,
             messages=[{system}, {user}],
@@ -548,10 +548,13 @@ briefing/llm_client.py
 ```
 
 확정된 RECOMMENDATION의 사실 문장만 user 메시지에 넣어 Chat Completion으로 생성한다.
-응답은 `{"script": ["문장1", ...]}` JSON으로 받아 `brief_generator.parse_script()`가 파싱한다
-(실측: 실제 프롬프트로 216 completion tokens, 유효 JSON 반환 확인).
+응답 전체는 설명·마크다운 fence 없는 `{"script": ["문장1", ...]}` strict JSON 객체여야 하며, 실제 LLM 경로는 비어 있지 않은 `list[str]`만 허용한다
+(실측: 실제 프롬프트로 216 completion tokens, 유효 JSON 반환 확인). 프롬프트 버전은 `brief-v2`이며,
+저장되는 prompt의 첫 줄과 배치 run manifest의 `prompt_version`에 기록한다.
 
-빈 응답·타임아웃·400은 `LlmUnavailableError`로 올려 `TEMPLATE` 정형 화법으로 대체한다.
+빈 응답·타임아웃·HTTP 오류뿐 아니라 HTTP 200이어도 OpenAI 호환 응답이 malformed/non-JSON이면
+`LlmUnavailableError`로 통일해 `TEMPLATE` 정형 화법으로 대체한다. 예외 원문에는 Virtual Key 식별자가
+포함될 수 있으므로 저장하지 않고, 비식별화된 예외 클래스명만 검증 오류에 기록한다.
 
 ### 8.4 EC2 연동 검증 결과 (2026-09-30)
 
@@ -579,8 +582,8 @@ EC2(`ip-10-49-0-19`)에서 `.venv/bin/python`으로 `generate_brief()`를 직접
 ### 8.6 citation guard (RULE-BRIEF-02)
 
 - 프롬프트에 "주어진 데이터 외의 사실을 인용하지 마라" 지시
-- 출처 태그 `[소스명·기준일]` 포맷 필수 강제
-- 후처리 파싱/검증은 하지 않음
+- `citation_guard`가 출처 태그(`소스명·YYYY-MM-DD`), 금칙 표현·상품어, 사실에 없는 수치·날짜를 후처리 검증
+- 수치 표기 차이는 `Decimal`로 정규화해 비교하고, 검증 통과 문장이 3문장을 초과하면 사실의 수치·핵심 토큰과 연관된 문장을 우선 보존한 뒤 원래 순서를 유지
 
 ---
 
@@ -778,7 +781,7 @@ WantedBy=multi-user.target
 
 ### 12.2 프론트엔드 (`c-maker-frontend.service`)
 
-> **참고**: nvm 환경에서 `npm install -g serve`로 설치하면 serve 바이너리가 `/usr/bin/serve`가 아닌 nvm 경로에 위치할 수 있다. 아래 명령으로 실제 경로를 확인한 뒤 `ExecStart`를 맞춘다.
+> **참고**: nvm 환경에서 `npm install -g serve`로 설치하면 serve 바이너리가 `/usr/bin/serve`가 아닌 nvm 경로에 위치할 수 있다. 아래 명령으로 실제 경로를 확인한 뒤 `ExecStart`를 맞춘다. systemd는 로그인 셸의 PATH를 사용하지 않고, serve는 `#!/usr/bin/env node`로 실행되므로 nvm의 node 경로를 `Environment=PATH=...`에 명시해야 한다.
 > ```bash
 > which serve   # 예: /home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve
 > ```
@@ -790,8 +793,9 @@ After=network.target
 
 [Service]
 User=ubuntu
-# ※ which serve 결과로 아래 경로를 교체할 것
-ExecStart=/home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l 8080
+# serve는 `#!/usr/bin/env node`로 실행되므로 nvm의 node가 PATH에 있어야 한다(systemd는 셸 PATH를 쓰지 않음)
+Environment=PATH=/home/ubuntu/.nvm/versions/node/v24.21.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l tcp://127.0.0.1:8080
 Restart=always
 RestartSec=5
 
@@ -862,7 +866,8 @@ sudo systemctl enable --now c-maker-frontend
 sudo mkdir -p /var/log/c-maker && sudo chown ubuntu:ubuntu /var/log/c-maker
 
 # 9) cron 등록
-crontab -e   # §10.3 내용 입력
+sudo install -o root -g root -m 644 deploy/c-maker.cron /etc/cron.d/c-maker
+sudo systemctl restart cron
 
 # 10) 첫 모집단 적재
 source .venv/bin/activate

@@ -18,7 +18,7 @@ from backend.batch.briefing.llm_client import LlmClient, LlmUnavailableError
 from backend.common.config import BriefingConfig
 from backend.common.schemas.brief import BriefContent, BriefInput
 
-PROMPT_VERSION = "brief-v1"
+PROMPT_VERSION = "brief-v2"
 
 SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화할 때 쓸 인사 화법 초안을 쓰는 도우미다.
 규칙:
@@ -26,7 +26,9 @@ SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화�
 2. 금융상품·대출·금리·한도·수익을 안내하거나 권유하지 마라. '확정 수익', '원금 보장' 같은 표현을 쓰지 마라.
 3. 개인에 대한 정보를 추측하거나 언급하지 마라.
 4. 존댓말로 최대 3문장. 출처 태그나 대괄호는 쓰지 마라.
-5. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+5. script 배열의 각 원소는 정확히 한 문장이어야 한다. 한 원소에 여러 문장을 합치지 마라.
+6. facts의 핵심 변화 문장을 최소 1개 포함하라.
+7. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
 
 
 def build_user_prompt(brief_input: BriefInput, config: BriefingConfig) -> str:
@@ -66,6 +68,23 @@ def parse_script(raw: str) -> list[str]:
     return [line for line in raw.splitlines() if line.strip()]
 
 
+def parse_llm_script_strict(raw: str) -> list[str]:
+    """실제 LLM 응답의 strict JSON 계약을 검증하고 안전한 오류로 통일한다."""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        raise LlmUnavailableError("LLM 응답 형식이 올바르지 않습니다") from None
+
+    script = data.get("script") if isinstance(data, dict) else None
+    if (
+        not isinstance(script, list)
+        or not script
+        or any(not isinstance(line, str) or not line.strip() for line in script)
+    ):
+        raise LlmUnavailableError("LLM 응답 형식이 올바르지 않습니다")
+    return script
+
+
 def generate_brief(
     brief_input: BriefInput,
     *,
@@ -85,7 +104,10 @@ def generate_brief(
             result = llm.complete(SYSTEM_PROMPT, user_prompt, max_tokens=config.max_output_tokens)
             latency_ms = int((time.monotonic() - started) * 1000)
             script, script_errors = validate_script(
-                parse_script(result.text), facts, config, allowed_context=allowed_context
+                parse_llm_script_strict(result.text),
+                facts,
+                config,
+                allowed_context=allowed_context,
             )
             errors.extend(script_errors)
             return BriefContent(
@@ -102,7 +124,9 @@ def generate_brief(
                 latency_ms=latency_ms,
             )
         except LlmUnavailableError as exc:
-            errors.append(f"LLM 호출 실패 — 정형 화법으로 대체: {exc}"[:300])
+            errors.append(f"LLM 호출 실패 — 정형 화법으로 대체 ({type(exc).__name__})")
+        except Exception as exc:  # noqa: BLE001 — LLM 응답 파싱·검증 실패도 브리프 한 건 안에서 격리한다.
+            errors.append(f"브리프 생성 예외 — 정형 화법으로 대체 ({type(exc).__name__})")
 
     script, script_errors = validate_script(
         template_script(brief_input, config), facts, config, allowed_context=allowed_context

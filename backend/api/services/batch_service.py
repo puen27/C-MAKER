@@ -131,7 +131,7 @@ def trigger(conn: psycopg.Connection, user: CurrentUser) -> BatchTriggerResponse
 
 
 def get_data_freshness(conn: psycopg.Connection, user: CurrentUser) -> DataFreshnessResponse:
-    """지연 배너 판정: 오늘 배치의 소스 폴백 지연, 배치 실패, 07:30 이후 미완료."""
+    """지연 배너 판정: 배치 실패, 소스 지연·수집 불가, 명부 미생성, SLA 미완료."""
     config = get_pipeline_config()
     today = today_kst()
     finished = batch_run_repository.latest_finished_for_date(conn, today)
@@ -155,11 +155,22 @@ def get_data_freshness(conn: psycopg.Connection, user: CurrentUser) -> DataFresh
     max_delay = max((source.delay_days for source in sources), default=0)
     list_ready = recommendation_repository.has_list(conn, today, user.branch_id)
 
+    unavailable_names = [source.display_name for source in sources if source.status == "UNAVAILABLE"]
+    has_fallback = any(source.status == "FALLBACK" or source.is_fallback for source in sources)
+
     message: str | None = None
     if finished is not None and finished["status"] == "FAILED":
         message = "오늘 일간 배치가 실패했습니다. 일부 데이터가 최신이 아닐 수 있습니다."
-    elif max_delay > 0:
-        message = f"일부 신호가 지연되었습니다(기준일 {max_delay}일 전)."
+    elif unavailable_names:
+        displayed_names = ", ".join(unavailable_names[:3])
+        remaining_count = len(unavailable_names) - 3
+        suffix = f" 외 {remaining_count}개" if remaining_count > 0 else ""
+        message = f"일부 데이터를 수집하지 못했습니다: {displayed_names}{suffix}."
+    elif has_fallback or max_delay > 0:
+        message = (f"일부 신호가 지연되었습니다(기준일 {max_delay}일 전)." if max_delay > 0
+                   else "일부 신호가 지연되었습니다.")
+    elif finished is not None and finished["status"] == "SUCCESS" and not list_ready:
+        message = "오늘 추천 명부가 생성되지 않았습니다."
     elif finished is None and datetime.now(KST).time() >= SLA_TIME:
         message = ("오늘 일간 배치가 실행 중입니다." if running is not None
                    else "오늘 일간 배치가 아직 완료되지 않았습니다.")

@@ -27,6 +27,37 @@ class LlmResult:
     model: str
 
 
+def _read_response_attribute(value: Any, name: str, *, default: Any = None) -> Any:
+    """SDK 응답 필드를 안전하게 읽고 형식 오류를 게이트웨이 장애로 통일한다."""
+    try:
+        return getattr(value, name, default)
+    except Exception:  # noqa: BLE001 — 외부 SDK 객체의 임의 속성 오류를 격리한다.
+        raise LlmUnavailableError(f"잘못된 LLM 응답 형식 ({name})") from None
+
+
+def _parse_completion_response(response: Any, fallback_model: str) -> LlmResult:
+    """OpenAI-compatible 응답 구조를 검증해 안전한 내부 계약으로 변환한다."""
+    choices = _read_response_attribute(response, "choices")
+    if not isinstance(choices, list) or not choices:
+        raise LlmUnavailableError("잘못된 LLM 응답 형식 (choices)")
+
+    message = _read_response_attribute(choices[0], "message")
+    if message is None:
+        raise LlmUnavailableError("잘못된 LLM 응답 형식 (message)")
+
+    content = _read_response_attribute(message, "content")
+    if not isinstance(content, str) or not content.strip():
+        raise LlmUnavailableError("빈 LLM 응답 또는 잘못된 content 형식")
+
+    model = _read_response_attribute(response, "model")
+    if model is None or model == "":
+        model = fallback_model
+    if not isinstance(model, str):
+        raise LlmUnavailableError("잘못된 LLM 응답 형식 (model)")
+
+    return LlmResult(text=content, model=model)
+
+
 class LlmClient:
     def __init__(self, settings: Settings) -> None:
         if not settings.llm_base_url or not settings.llm_api_key:
@@ -64,13 +95,9 @@ class LlmClient:
                 extra_body=extra_body or None,
             )
         except OpenAIError as exc:
-            raise LlmUnavailableError(f"{type(exc).__name__}: {exc}") from exc
-        choice = response.choices[0] if response.choices else None
-        content = choice.message.content if choice else None
-        if not content:
-            reason = choice.finish_reason if choice else "no_choices"
-            raise LlmUnavailableError(f"빈 응답 (finish_reason={reason})")
-        return LlmResult(text=content, model=response.model or self._model)
+            # OpenAIError 원문에는 Virtual Key 식별자가 포함될 수 있어 DB 오류 기록으로 전달하지 않는다.
+            raise LlmUnavailableError(f"LLM 게이트웨이 호출 실패 ({type(exc).__name__})") from exc
+        return _parse_completion_response(response, self._model)
 
 
 def create_llm_client(settings: Settings) -> LlmClient | None:

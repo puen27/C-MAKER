@@ -6,6 +6,8 @@ After=network.target
 
 [Service]
 User=ubuntu
+# serve는 `#!/usr/bin/env node`로 실행되므로 nvm의 node가 PATH에 있어야 한다(systemd는 셸 PATH를 쓰지 않음)
+Environment=PATH=/home/ubuntu/.nvm/versions/node/v24.21.0/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/ubuntu/.nvm/versions/node/v24.21.0/bin/serve -s /home/ubuntu/c-maker/frontend/dist -l tcp://127.0.0.1:8080
 Restart=always
 RestartSec=5
