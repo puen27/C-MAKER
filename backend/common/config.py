@@ -157,7 +157,7 @@ class BriefingConfig(BaseModel):
     forbidden_expressions: list[str] = Field(default_factory=list)
     product_terms: list[str] = Field(default_factory=list)
     default_checklist: list[str] = Field(default_factory=list)
-    greeting_org_name: str = "○○은행"
+    greeting_org_name: str = "NH농협은행"
     max_output_tokens: int = 400
 
 

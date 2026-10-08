@@ -29,6 +29,9 @@ class BriefInput(BaseModel):
     industry_name: str
     distance_km: float
     facts: list[BriefFact]
+    # 화법의 연락 사유·목적 — fact_builder가 주 사유 신호 종류로 결정론적으로 정한다(새 사실을 담지 않음)
+    call_reason: str = ""
+    call_purpose: str = ""
 
 
 class BriefContent(BaseModel):

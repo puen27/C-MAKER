@@ -30,7 +30,7 @@ CONTEXT = ["강남중앙지점", "예시상점01", BRIEFING.greeting_org_name]
 
 # 회귀 테스트셋: (LLM이 쓴 문장, 통과 여부)
 REGRESSION_SET = [
-    ("안녕하세요, ○○은행 강남중앙지점입니다.", True),
+    ("안녕하세요, NH농협은행 강남중앙지점입니다.", True),
     ("최근 담당 상권에서 신규 개업이 5건 감지되어 인사드립니다.", True),
     ("환율이 전일 대비 1.25% 변동해 여쭤보고자 연락드렸습니다.", True),
     ("최근 상권에 신규 개업이 12건이나 늘었습니다.", False),          # 근거 없는 수치
@@ -94,11 +94,11 @@ def _input() -> BriefInput:
 
 def test_generate_brief_with_llm_keeps_only_grounded_sentences():
     llm = FakeLlm(json.dumps({"script": [
-        "안녕하세요, ○○은행 강남중앙지점입니다.", "매출이 30% 늘었습니다.", "잠시 방문드려도 될까요?"]},
+        "안녕하세요, NH농협은행 강남중앙지점입니다.", "매출이 30% 늘었습니다.", "잠시 방문드려도 될까요?"]},
         ensure_ascii=False))
     brief = generate_brief(_input(), reason_summary="요약", llm=llm, config=BRIEFING)  # type: ignore[arg-type]
     assert brief.generation_status == "LLM"
-    assert brief.talk_script == ["안녕하세요, ○○은행 강남중앙지점입니다.", "잠시 방문드려도 될까요?"]
+    assert brief.talk_script == ["안녕하세요, NH농협은행 강남중앙지점입니다.", "잠시 방문드려도 될까요?"]
     assert brief.model_version == "fake-model" and brief.prompt and brief.raw_output
 
 
@@ -135,7 +135,7 @@ def test_reason_facts_all_have_source_tags():
                         default_weight=1.0, min_sample=30)
     scored = score_candidate(branch(), item, events, table, None, TODAY, CONFIG)
     facts = build_reason_facts(item, scored, {e.event_id: e for e in events}, CONFIG)
-    assert facts[0].fact.text.startswith("2026-09-25 인허가된 신규 개업")
+    assert facts[0].fact.text.startswith("2026-09-25에 인허가를 받은 신규 개업")
     assert facts[0].fact.source_tag == "지방행정인허가·2026-09-29"
     kept, errors = validate_facts([f.fact for f in facts], BRIEFING)
     assert len(kept) == len(facts) and not errors

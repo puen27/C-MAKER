@@ -675,6 +675,8 @@ def target_branch(
                     industry_name=candidate.industry_name,
                     distance_km=candidate.distance_km,
                     facts=[fact.fact for fact in reason_facts],
+                    call_reason=reason_facts[0].call_reason,
+                    call_purpose=reason_facts[0].call_purpose,
                 ),
                 reason_summary=reason_facts[0].summary,
             )

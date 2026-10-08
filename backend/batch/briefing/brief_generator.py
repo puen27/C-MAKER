@@ -18,17 +18,33 @@ from backend.batch.briefing.llm_client import LlmClient, LlmUnavailableError
 from backend.common.config import BriefingConfig
 from backend.common.schemas.brief import BriefContent, BriefInput
 
-PROMPT_VERSION = "brief-v2"
+PROMPT_VERSION = "brief-v3"
 
-SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화할 때 쓸 인사 화법 초안을 쓰는 도우미다.
+# call_reason/call_purpose가 비어 있을 때(구 입력·테스트)의 기본값
+_FALLBACK_CALL_REASON = "저희 지점 담당 상권에서 영업 중이신 사업장께 인사드리고자"
+_FALLBACK_CALL_PURPOSE = "가까운 지점에서 사업장 운영에 필요하신 금융 업무를 편하게 보실 수 있도록 도와드리고자"
+_CALL_ASK = "편하신 시간에 담당 직원이 잠시 찾아뵙고 현재 거래 상황과 필요하신 부분을 여쭤봐도 괜찮을까요?"
+
+SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화할 때 읽을 화법 초안을 쓰는 도우미다.
+화법은 사장님이 '왜 전화했는지, 나에게 무슨 도움이 되는지'를 바로 알 수 있게 아래 3문장 구조로 쓴다.
+  1문장(인사·연락 사유): org_name·branch_name을 밝히고 business_name 사장님께, call_reason과 facts의 핵심 변화로 왜 지금 연락했는지 말한다.
+  2문장(연락 목적): call_purpose를 바탕으로 사장님 사업장 입장에서 지점이 무엇을 도와드리려는지 구체적으로 말한다.
+  3문장(다음 행동 요청): 방문 또는 짧은 상담 일정을 정중하게 여쭙는다.
 규칙:
-1. 사용자 메시지의 facts에 있는 내용만 언급할 수 있다. facts에 없는 사실·수치·날짜·혜택을 만들지 마라.
-2. 금융상품·대출·금리·한도·수익을 안내하거나 권유하지 마라. '확정 수익', '원금 보장' 같은 표현을 쓰지 마라.
+1. facts·call_reason·call_purpose에 있는 내용만 언급할 수 있다. 그 밖의 사실·수치·날짜·혜택을 만들지 마라.
+2. 금융상품 이름이나 대출·금리·한도·수익·수수료를 안내하거나 권유하지 마라. '확정 수익', '원금 보장' 같은 표현을 쓰지 마라.
 3. 개인에 대한 정보를 추측하거나 언급하지 마라.
 4. 존댓말로 최대 3문장. 출처 태그나 대괄호는 쓰지 마라.
 5. script 배열의 각 원소는 정확히 한 문장이어야 한다. 한 원소에 여러 문장을 합치지 마라.
-6. facts의 핵심 변화 문장을 최소 1개 포함하라.
-7. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+6. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+
+
+def _call_reason(brief_input: BriefInput) -> str:
+    return brief_input.call_reason.strip() or _FALLBACK_CALL_REASON
+
+
+def _call_purpose(brief_input: BriefInput) -> str:
+    return brief_input.call_purpose.strip() or _FALLBACK_CALL_PURPOSE
 
 
 def build_user_prompt(brief_input: BriefInput, config: BriefingConfig) -> str:
@@ -38,6 +54,8 @@ def build_user_prompt(brief_input: BriefInput, config: BriefingConfig) -> str:
             "branch_name": brief_input.branch_name,
             "business_name": brief_input.business_name,
             "industry": brief_input.industry_name,
+            "call_reason": _call_reason(brief_input),
+            "call_purpose": _call_purpose(brief_input),
             "facts": [fact.text for fact in brief_input.facts],
         },
         ensure_ascii=False,
@@ -45,11 +63,15 @@ def build_user_prompt(brief_input: BriefInput, config: BriefingConfig) -> str:
 
 
 def template_script(brief_input: BriefInput, config: BriefingConfig) -> list[str]:
-    """사실을 담지 않는 정형 화법(LLM 미가용 시). 지점명·상호 외의 정보를 넣지 않는다."""
+    """정형 화법(LLM 미가용 시) — 인사·연락 사유 / 연락 목적 / 다음 행동 요청 3문장.
+
+    사유·목적 문구는 fact_builder가 신호 종류별로 정한 고정 문구이며, 수치를 담더라도 사실 문장과 같은 값이다.
+    """
     return [
-        f"안녕하세요, {config.greeting_org_name} {brief_input.branch_name}입니다.",
-        f"{brief_input.business_name} 주변 상권에서 최근 확인된 변화와 관련해 인사드리고자 연락드렸습니다.",
-        "편하신 시간에 잠시 방문드려 필요하신 부분을 여쭤봐도 괜찮을까요?",
+        f"안녕하세요 {brief_input.business_name} 사장님, {config.greeting_org_name} {brief_input.branch_name}에서 "
+        f"{_call_reason(brief_input)} 연락드렸습니다.",
+        f"{_call_purpose(brief_input)} 합니다.",
+        _CALL_ASK,
     ]
 
 
@@ -93,7 +115,13 @@ def generate_brief(
     config: BriefingConfig,
 ) -> BriefContent:
     facts, errors = validate_facts(brief_input.facts, config)
-    allowed_context = [brief_input.branch_name, brief_input.business_name, config.greeting_org_name]
+    allowed_context = [
+        brief_input.branch_name,
+        brief_input.business_name,
+        config.greeting_org_name,
+        _call_reason(brief_input),
+        _call_purpose(brief_input),
+    ]
     checklist = list(config.default_checklist)
     user_prompt = build_user_prompt(brief_input.model_copy(update={"facts": facts}), config)
     prompt_record = f"[{PROMPT_VERSION}]\n[system]\n{SYSTEM_PROMPT}\n[user]\n{user_prompt}"
