@@ -185,6 +185,8 @@ def validate_script(
     allowed_numbers: set[Decimal] = set()
     for text in [fact.text for fact in facts] + list(allowed_context):
         allowed_numbers |= _numbers(text)
+    # "-1.11% 변동"을 "1.11% 하락"처럼 크기만 말하는 표현은 허용한다(값 자체는 근거와 같음)
+    allowed_numbers |= {abs(number) for number in allowed_numbers}
 
     kept: list[str] = []
     errors: list[str] = []

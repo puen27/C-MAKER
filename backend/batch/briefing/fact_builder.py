@@ -80,7 +80,8 @@ def _event_fact(event: ActiveEvent) -> _Built | None:
                 "첫 거래 관계를 만들기 좋은 시기입니다."
             ),
             summary="신규 개업 사업장 — 주거래 은행을 정하기 전, 첫 거래를 만들 적기",
-            call_reason="최근 새로 문을 여신 것을 확인하고 개업 인사차",
+            # '문을 여신'은 상품 용어 '여신'으로 차단되므로 '개업하신'으로 쓴다
+            call_reason="최근 새로 개업하신 것을 확인하고 개업 인사차",
             call_purpose="개업 초기에 필요하신 매출 정산 계좌 개설이나 사업 운영 자금 준비를 지점에서 직접 도와드리고자",
         )
     if kind == "INDUSTRY_NEW_OPENINGS":

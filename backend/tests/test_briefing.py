@@ -50,6 +50,34 @@ def test_grounding_regression_set(sentence, should_pass):
     assert bool(kept) is should_pass, errors
 
 
+def test_unsigned_magnitude_of_grounded_number_is_allowed():
+    facts = [fact("원/달러 환율이 1,343.40원으로 전일 대비 -1.11% 변동했습니다.", "한국은행ECOS", "2026-10-07")]
+    kept, errors = validate_script(["환율이 1.11% 내려 연락드렸습니다."], facts, BRIEFING)
+    assert kept and not errors
+    kept, _ = validate_script(["환율이 2.22% 내려 연락드렸습니다."], facts, BRIEFING)
+    assert not kept
+
+
+def test_template_script_passes_guard_for_every_signal_type():
+    from backend.batch.briefing.fact_builder import _event_fact
+
+    samples = {
+        "NEW_BUSINESS_OPENING": {"licensed_on": "2026-09-25"},
+        "INDUSTRY_NEW_OPENINGS": {"count": 2, "industry_name": "한식", "radius_km": 1.0},
+        "AREA_NEW_OPENINGS": {"count": 4, "radius_km": 1.0},
+        "FX_DAILY_CHANGE": {"rate": 1343.4, "change_pct": -1.11},
+        "OIL_PRICE_CHANGE": {"sido": "서울", "change_pct": 0.8},
+        "WEATHER_WARNING": {"warning": "폭염주의보", "sido": "서울"},
+    }
+    for signal_type, detail in samples.items():
+        built = _event_fact(active_event(1, signal_type=signal_type, detail=detail))
+        assert built is not None
+        brief_input = _input().model_copy(update={
+            "facts": [fact(built.text)], "call_reason": built.call_reason, "call_purpose": built.call_purpose})
+        brief = generate_brief(brief_input, reason_summary=built.summary, llm=None, config=BRIEFING)
+        assert len(brief.talk_script) == 3, (signal_type, brief.validation_errors)
+
+
 def test_script_is_limited_to_three_sentences():
     lines = ["안녕하세요.", "인사드립니다.", "방문드려도 될까요?", "감사합니다."]
     kept, errors = validate_script(lines, FACTS, BRIEFING)
