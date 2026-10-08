@@ -33,6 +33,11 @@ weight_signal_fit = 0.3334    # ③ 업종×당일신호 적합도
 license_decay_days = 180      # ① exp(-경과일/180)
 no_contact_saturation_days = 30
 
+[exclusion]
+# 인허가 적재 단계에서 제외하는 공공기관 업태·상호 키워드(api/11-api-spec.md §1.9).
+# 업태구분명에 포함되거나 사업장명이 이 키워드로 끝나면 BUSINESS에 넣지 않는다(개업 신호도 만들지 않음).
+excluded_permit_keywords = ["보건소", "보건지소", "보건진료소", "보건의료원"]
+
 [exclusion.reject_exclusion_days]   # RULE-TARGET-01 부적합 사유별 배제 기간(일), 0 = 영구
 ALREADY_CUSTOMER = 0          # 이미 거래중 — 영구
 NOT_TARGET = 0                # 대상 아님 — 영구
@@ -61,13 +66,71 @@ max_output_tokens = 400
 # display_name은 출처 태그 [소스명·기준일]의 소스명으로 그대로 노출된다(RULE-BRIEF-01).
 # expected_lag_days: 정상 수집 시 기준일이 오늘보다 며칠 전인지. 이보다 더 오래된 스냅샷이면 지연 배지(RULE-SENSE-04).
 
-[sources.PERMIT_DAILY]        # 지방행정 인허가 변동분 (N-1) — 신규 개업·폐업 1차 신호
+[sources.PERMIT_DAILY]        # 지방행정 인허가 변동분 (S-10~S-18) — 신규 개업·폐업 1차 신호
 display_name = "지방행정인허가"
-# ⚠ N-1 활용신청(data.go.kr) 승인 후 엔드포인트를 입력한다. 비어 있으면 수집을 건너뛰고 전일 스냅샷으로 폴백한다.
-#   응답 필드는 구 localdata 표준(mgtNo, bplcNm, trdStateGbn, apvPermYmd, x, y …)을 기준으로 파싱한다.
-url = ""
-expected_lag_days = 2         # REQ-02: 인허가 영업상태는 D-2 기준
-options = { page_size = 500, new_opening_window_days = 7, max_fallback_age_days = 3 }
+# 행안부 업종별 인허가 조회서비스(api/11-api-spec.md §1). 실제 호출 URL = {url}/{업종 path}/info
+url = "https://apis.data.go.kr/1741000"
+expected_lag_days = 2         # REQ-02: /info는 D-2 기준 현행화
+
+[sources.PERMIT_DAILY.options]
+page_size = 100               # API 1회 최대 100행(초과 요청 시 조용히 100행만 온다)
+new_opening_window_days = 7
+max_fallback_age_days = 3
+# 변동분 창: [from, 기준일 00:00) — LAST_MDFCN_PNT 기준(§1.3, DAT_UPDT_PNT는 좌표 보정까지 잡혀 노이즈)
+#   from = min(기준일 - (expected_lag_days + overlap_days), 직전 성공 창의 to - expected_lag_days)
+#   직전 성공이 오래됐어도 max_lookback_days보다 과거로는 가지 않는다.
+overlap_days = 1
+max_lookback_days = 7
+timeout_seconds = 90          # 실측 1회 20초~2분 — 공통 기본값(15초)으로는 끊긴다
+max_workers = 3               # 업종 병렬 호출 수(07:30 SLA)
+# 지자체 필터(OPN_ATMY_GRP_CD). 비우면 전국 변동분을 받고 지점 반경 필터만 적용한다.
+#   지점 담당 반경(1km)이 걸치는 인접 구까지 포함한다. 지점 추가 시 개방자치단체코드 표(api/)에서 추가.
+region_codes = [
+  "3010000", "3000000", "3120000",   # 본점영업부: 서울 중구 + 종로구·서대문구
+  "3160000", "3170000", "3200000",   # 구로디지털금융센터: 서울 구로구 + 금천구·관악구
+  "3180000",                         # 파크원센터: 서울 영등포구
+  "3440000", "3470000",              # 성당지점: 대구 남구 + 달서구
+  "5710000",                         # 율량동지점: 충북 청주시(구 단위 코드 없음)
+]
+
+# 업종 = End Point. service_id는 전수 CSV(개방서비스아이디)와 같은 관리번호 접두어를 쓰기 위한 값(CONST-13)
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "07_24_04_P"
+name = "일반음식점"
+path = "general_restaurants"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "07_24_05_P"
+name = "휴게음식점"
+path = "rest_cafes"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "05_18_01_P"
+name = "미용업"
+path = "beauty_salons"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "01_01_02_P"
+name = "의원"
+path = "clinics"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "01_01_01_P"
+name = "병원"
+path = "hospitals"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "pharmacies"     # 구 개방서비스ID 미확인 — 확인되면 교체(기존 적재분 관리번호 접두어도 함께 바뀜)
+name = "약국"
+path = "pharmacies"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "03_11_03_P"
+name = "숙박업"
+path = "lodgings"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "fitness_centers"  # 구 개방서비스ID 미확인
+name = "체력단련장업"
+path = "fitness_centers"
+[[sources.PERMIT_DAILY.options.services]]
+service_id = "08_26_04_P"
+name = "통신판매업"
+path = "ecommerce_businesses"
+enabled = false               # 신고 주소가 자택·공유오피스인 경우가 많아 반경 매칭 신뢰도가 낮다. BRNO 미제공(2026-10-07 실호출)
 
 [sources.PERMIT_FULL]         # 지방행정 인허가 전수 파일 (F-2) — 월간 모집단
 display_name = "지방행정인허가"

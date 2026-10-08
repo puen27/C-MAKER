@@ -41,7 +41,7 @@ from backend.batch.connectors import (
 )
 from backend.batch.connectors.http_client import FetchResult, SourceNotConfiguredError
 from backend.batch.normalizers import signal_normalizer as normalizer
-from backend.batch.normalizers.permit_parser import parse_permit_row
+from backend.batch.normalizers.permit_parser import is_excluded_permit, parse_permit_row
 from backend.batch.population.business_loader import AreaIndex, apply_permit_records
 from backend.batch.sensing.event_promoter import decide_promotions
 from backend.batch.targeting.exclusion import ExclusionParams, apply_exclusions
@@ -255,6 +255,41 @@ def collect_nts(
     return collect_source("NTS_STATUS", target_date, config, fetch), missing
 
 
+_PERMIT_TS_FORMAT = "%Y%m%d%H%M%S"
+
+
+def previous_window_to(raw_payload: Any) -> datetime | None:
+    """직전 PERMIT_DAILY 스냅샷의 변동분 창 끝(워터마크). 구 형식 스냅샷이면 None."""
+    if not isinstance(raw_payload, dict):
+        return None
+    window = raw_payload.get("window")
+    value = window.get("to") if isinstance(window, dict) else None
+    try:
+        return datetime.strptime(str(value), _PERMIT_TS_FORMAT) if value else None
+    except ValueError:
+        return None
+
+
+def permit_change_window(
+    target_date: date, lag_days: int, options: dict[str, Any], previous_to: datetime | None
+) -> tuple[datetime, datetime]:
+    """인허가 변동분 조회 창 [from, to) — api/11-api-spec.md §1.12.
+
+    /info는 D-2 현행화라 원천 수정시점(LAST_MDFCN_PNT)이 어제인 행도 아직 안 보일 수 있다. 그래서
+    - to   = 기준일 00:00 (KST, 원천 시각과 같은 기준)
+    - from = min(기준일 - (지연 + 겹침), 직전 성공 창 to - 지연) — 직전 실행 때 아직 안 보이던 구간을 다시 받는다.
+             배치가 며칠 빠져도 직전 성공 지점부터 이어 받되, max_lookback_days보다 과거로는 가지 않는다.
+    같은 사업장이 여러 번 잡히는 것은 커넥터의 MNG_NO 중복 제거와 BUSINESS upsert가 흡수한다.
+    """
+    to = datetime.combine(target_date, dt_time.min)
+    overlap = int(options.get("overlap_days", 1))
+    max_lookback = int(options.get("max_lookback_days", 7))
+    start = to - timedelta(days=lag_days + overlap)
+    if previous_to is not None:
+        start = min(start, previous_to - timedelta(days=lag_days))
+    return max(start, to - timedelta(days=max_lookback)), to
+
+
 def collect_all_sources(
     branches: list[BranchContext], target_date: date, config: PipelineConfig
 ) -> dict[str, SourceOutcome]:
@@ -264,18 +299,29 @@ def collect_all_sources(
 
     permit = sources["PERMIT_DAILY"]
     change_date = target_date - timedelta(days=permit.expected_lag_days)
-    outcomes["PERMIT_DAILY"] = collect_source(
-        "PERMIT_DAILY",
-        target_date,
-        config,
-        lambda: (
-            permit_connector.fetch_daily_changes(
-                settings.data_go_kr_service_key, permit.url, change_date,
-                page_size=int(permit.options.get("page_size", 500)),
-            ),
-            change_date,
-        ),
-    )
+
+    def fetch_permit() -> tuple[FetchResult, date]:
+        with get_connection() as conn:
+            # 같은 기준일 재실행이 자기 자신을 워터마크로 쓰지 않도록 기준일 전날까지만 본다.
+            previous = find_latest_snapshot(conn, "PERMIT_DAILY", change_date - timedelta(days=1))
+        window_from, window_to = permit_change_window(
+            target_date, permit.expected_lag_days, permit.options,
+            previous_window_to(previous.raw_payload if previous else None),
+        )
+        result = permit_connector.fetch_daily_changes(
+            settings.data_go_kr_service_key,
+            permit.url,
+            permit_connector.PermitService.from_options(permit.options),
+            window_from,
+            window_to,
+            region_codes=[str(code) for code in permit.options.get("region_codes") or []],
+            page_size=int(permit.options.get("page_size", 100)),
+            timeout=float(permit.options.get("timeout_seconds", 0)) or None,
+            max_workers=int(permit.options.get("max_workers", 1)),
+        )
+        return result, change_date
+
+    outcomes["PERMIT_DAILY"] = collect_source("PERMIT_DAILY", target_date, config, fetch_permit)
 
     station_ids = sorted(
         {sid for b in branches if (sid := config.kma_station_by_sido.get(extract_sido(b.address) or "")) is not None}
@@ -335,7 +381,9 @@ def apply_permit_changes(
         return [], {}
     assert outcome.as_of_date is not None
     window = int(config.sources["PERMIT_DAILY"].options.get("new_opening_window_days", 7))
-    permits = [record for record in (parse_permit_row(row) for row in outcome.payload.get("rows") or []) if record]
+    keywords = config.exclusion.excluded_permit_keywords
+    parsed = [record for record in (parse_permit_row(row) for row in outcome.payload.get("rows") or []) if record]
+    permits = [record for record in parsed if not is_excluded_permit(record, keywords)]
     with get_connection() as conn:
         result = apply_permit_records(
             conn, permits, area, outcome.as_of_date,
@@ -348,7 +396,7 @@ def apply_permit_changes(
         )
         for business_id, _permit, record in result.new_openings
     ]
-    return openings, result.as_dict()
+    return openings, {**result.as_dict(), "excluded": len(parsed) - len(permits)}
 
 
 def apply_nts_results(outcome: SourceOutcome) -> dict[str, int]:

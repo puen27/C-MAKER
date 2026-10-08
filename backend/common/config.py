@@ -148,6 +148,8 @@ class FreshnessConfig(BaseModel):
 class ExclusionConfig(BaseModel):
     # 부적합 사유별 배제 기간(일). 0이면 영구 배제.
     reject_exclusion_days: dict[str, int] = Field(default_factory=dict)
+    # 인허가 적재 제외 키워드(업태구분명 포함 / 사업장명 접미). 공공 보건기관 등 영업 대상이 아닌 곳.
+    excluded_permit_keywords: list[str] = Field(default_factory=list)
 
 
 class BriefingConfig(BaseModel):

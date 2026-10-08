@@ -1,34 +1,37 @@
 """지방행정 인허가 원본 행 → PermitRecord.
 
-전수 CSV(한글 표준 컬럼명)와 변동분 API(camelCase 필드명)를 같은 형태로 옮긴다.
+전수 CSV(한글 표준 컬럼명), 신규 업종별 API(대문자 스네이크, api/11-api-spec.md §1.5),
+구 LOCALDATA API(camelCase — 이전 스냅샷 폴백용)를 같은 형태로 옮긴다.
+신규 API에는 업종 식별자가 없어 커넥터가 호출 업종의 opnSvcId/opnSvcNm을 행에 붙여 준다.
 좌표는 원본(EPSG:5174) 그대로 두며, WGS84 변환은 호출 측이 common/geo로 수행한다(VAL-11).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 
 from backend.common.schemas.business import OperatingStatus, PermitRecord
 
-# 공통 필드 → 후보 키 (CSV 한글 컬럼, API camelCase)
+# 공통 필드 → 후보 키 (CSV 한글 컬럼, 신규 API 대문자 스네이크, 구 API camelCase)
 _FIELD_KEYS: dict[str, tuple[str, ...]] = {
-    "mgt_no": ("관리번호", "mgtNo", "MGTNO"),
-    "name": ("사업장명", "bplcNm", "BPLCNM"),
+    "mgt_no": ("관리번호", "MNG_NO", "mgtNo", "MGTNO"),
+    "name": ("사업장명", "BPLC_NM", "bplcNm", "BPLCNM"),
     "service_name": ("개방서비스명", "opnSvcNm", "OPNSVCNM"),
     "service_id": ("개방서비스아이디", "opnSvcId", "OPNSVCID"),
-    "uptae": ("업태구분명", "uptaeNm", "UPTAENM"),
-    "status_code": ("영업상태구분코드", "trdStateGbn", "TRDSTATEGBN"),
-    "status_name": ("영업상태명", "trdStateNm", "TRDSTATENM"),
-    "detail_status_name": ("상세영업상태명", "dtlStateNm", "DTLSTATENM"),
-    "licensed_on": ("인허가일자", "apvPermYmd", "APVPERMYMD"),
-    "closed_on": ("폐업일자", "dcbYmd", "DCBYMD"),
-    "road_address": ("도로명전체주소", "rdnWhlAddr", "RDNWHLADDR"),
-    "site_address": ("소재지전체주소", "siteWhlAddr", "SITEWHLADDR"),
-    "update_type": ("데이터갱신구분", "updateGbn", "UPDATEGBN"),
+    "uptae": ("업태구분명", "BZSTAT_SE_NM", "uptaeNm", "UPTAENM"),
+    "status_code": ("영업상태구분코드", "SALS_STTS_CD", "trdStateGbn", "TRDSTATEGBN"),
+    "status_name": ("영업상태명", "SALS_STTS_NM", "trdStateNm", "TRDSTATENM"),
+    "detail_status_name": ("상세영업상태명", "DTL_SALS_STTS_NM", "dtlStateNm", "DTLSTATENM"),
+    "licensed_on": ("인허가일자", "LCPMT_YMD", "apvPermYmd", "APVPERMYMD"),
+    "closed_on": ("폐업일자", "CLSBIZ_YMD", "dcbYmd", "DCBYMD"),
+    "road_address": ("도로명전체주소", "ROAD_NM_ADDR", "rdnWhlAddr", "RDNWHLADDR"),
+    "site_address": ("소재지전체주소", "LOTNO_ADDR", "siteWhlAddr", "SITEWHLADDR"),
+    "update_type": ("데이터갱신구분", "DAT_UPDT_SE", "updateGbn", "UPDATEGBN"),
 }
-_X_KEYS = ("좌표정보(x)", "좌표정보(X)", "좌표정보x(epsg5174)", "x", "X")
-_Y_KEYS = ("좌표정보(y)", "좌표정보(Y)", "좌표정보y(epsg5174)", "y", "Y")
+_X_KEYS = ("좌표정보(x)", "좌표정보(X)", "좌표정보x(epsg5174)", "CRD_INFO_X", "x", "X")
+_Y_KEYS = ("좌표정보(y)", "좌표정보(Y)", "좌표정보y(epsg5174)", "CRD_INFO_Y", "y", "Y")
 _MEANINGLESS_UPTAE = {"", "기타", "-"}
 
 
@@ -68,7 +71,7 @@ def map_operating_status(code: str, name: str, detail_name: str) -> OperatingSta
         return "휴업"
     if code == "03":
         return "폐업"
-    if code == "04":  # 취소/말소/만료/정지/중지
+    if code in ("04", "05", "06"):  # 04 취소/말소/만료/정지/중지, 05 제외/삭제/전출, 06 기타 — 모두 영업 대상 아님
         return "폐업"
     text = f"{name} {detail_name}"
     if "폐업" in text or "말소" in text or "취소" in text:
@@ -112,3 +115,13 @@ def parse_permit_row(row: dict[str, Any]) -> PermitRecord | None:
         address=(_pick(row, _FIELD_KEYS["road_address"]) or _pick(row, _FIELD_KEYS["site_address"]) or None),
         update_type=_pick(row, _FIELD_KEYS["update_type"]) or None,
     )
+
+
+def is_excluded_permit(record: PermitRecord, keywords: Iterable[str]) -> bool:
+    """공공 보건기관 등 영업 대상이 아닌 인허가(api/11-api-spec.md §1.9).
+
+    업태(industry_name)에 키워드가 들어 있거나 사업장명이 키워드로 끝나면 제외한다.
+    사업장명은 접미만 본다 — '○○보건소앞약국' 같은 상호를 잘못 거르지 않기 위해서다.
+    """
+    name = record.name.strip()
+    return any(keyword and (keyword in record.industry_name or name.endswith(keyword)) for keyword in keywords)

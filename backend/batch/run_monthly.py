@@ -23,7 +23,7 @@ from typing import Any
 from backend.batch import batch_repository as repo
 from backend.batch.connectors import permit_connector, sbiz_connector
 from backend.batch.connectors.http_client import FetchResult, SourceFetchError
-from backend.batch.normalizers.permit_parser import parse_permit_row
+from backend.batch.normalizers.permit_parser import is_excluded_permit, parse_permit_row
 from backend.batch.population.business_loader import AreaIndex, apply_permit_records, apply_sbiz_records
 from backend.common.config import get_pipeline_config, get_settings, today_kst
 from backend.common.db.advisory_lock import BATCH_MUTATION_LOCK_KEY, acquire_advisory_lock
@@ -212,6 +212,7 @@ def load_sbiz(area: AreaIndex, as_of: date) -> dict[str, object]:
 
 
 def _iter_permit_records(file_path: Path, counts: dict[str, int]) -> Iterator[PermitRecord]:
+    keywords = get_pipeline_config().exclusion.excluded_permit_keywords
     for row in permit_connector.fetch_all_businesses(file_path):
         counts["rows"] += 1
         record = parse_permit_row(row)
@@ -219,6 +220,9 @@ def _iter_permit_records(file_path: Path, counts: dict[str, int]) -> Iterator[Pe
             counts["parse_skipped"] += 1
             continue
         counts["parsed_rows"] += 1
+        if is_excluded_permit(record, keywords):
+            counts["excluded"] += 1
+            continue
         yield record
 
 
@@ -266,6 +270,7 @@ def load_permit_files(area: AreaIndex, as_of: date) -> dict[str, object]:
         "rows": 0,
         "parsed_rows": 0,
         "parse_skipped": 0,
+        "excluded": 0,
         "upserted": 0,
         "status_updated": 0,
         "skipped_out_of_area": 0,
@@ -277,7 +282,7 @@ def load_permit_files(area: AreaIndex, as_of: date) -> dict[str, object]:
     with get_connection() as conn:
         for archived_path, original_name, snapshot_id in archived:
             started = time.monotonic()
-            counts = {"rows": 0, "parsed_rows": 0, "parse_skipped": 0}
+            counts = {"rows": 0, "parsed_rows": 0, "parse_skipped": 0, "excluded": 0}
             result = apply_permit_records(conn, _iter_permit_records(archived_path, counts), area, as_of)
             result_values = result.as_dict()
             for key, value in counts.items():
