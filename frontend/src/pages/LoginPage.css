@@ -16,6 +16,18 @@
 .login-page__brand {
   margin-bottom: var(--space-5);
 }
+.login-page__brand .brand-signature {
+  margin-bottom: var(--space-4);
+}
+.login-page__demo {
+  display: inline-block;
+  margin: var(--space-3) 0 0;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--ink-3);
+}
 .login-page__title {
   color: var(--color-primary);
   font-size: var(--font-size-xl);

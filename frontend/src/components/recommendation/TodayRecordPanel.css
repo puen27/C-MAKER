@@ -1,0 +1,115 @@
+/* 오늘 기록 패널 — NH-Campaigner-UI-proposal.html .panel / .meter / .legend */
+.record-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: var(--space-4) 18px;
+}
+.record-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0;
+}
+.record-panel__count {
+  margin: 10px 0;
+  font-size: var(--font-size-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.record-panel__count b {
+  margin-right: 3px;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--ink);
+}
+.record-panel__meter {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+.record-panel__seg {
+  display: block;
+  height: 100%;
+}
+.record-panel__seg.is-visited,
+.record-panel__swatch.is-visited {
+  background: var(--status-visited);
+}
+.record-panel__seg.is-hold,
+.record-panel__swatch.is-hold {
+  background: var(--status-hold);
+}
+.record-panel__seg.is-excluded,
+.record-panel__swatch.is-excluded {
+  background: var(--status-excluded);
+}
+.record-panel__swatch.is-none {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.record-panel__legend {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px var(--space-4);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.record-panel__legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.record-panel__legend b {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.record-panel__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.record-panel__carry {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: var(--space-3) 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink);
+}
+.record-panel__carry b {
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+.record-panel__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-hold);
+}
+.record-panel__hint {
+  margin: var(--space-3) 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.record-panel__hint.is-follow {
+  margin-top: var(--space-1);
+  padding-top: 0;
+  border-top: 0;
+}

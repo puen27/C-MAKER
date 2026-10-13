@@ -1,0 +1,23 @@
+.brand-signature {
+  display: block;
+  flex-shrink: 0;
+  width: auto;
+}
+.brand-signature--md {
+  height: 30px;
+}
+.brand-signature--lg {
+  height: 40px;
+}
+.brand-signature--slot {
+  display: grid;
+  place-items: center;
+  width: 136px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.brand-signature--lg.brand-signature--slot {
+  width: 180px;
+}

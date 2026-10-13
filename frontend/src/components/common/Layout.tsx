@@ -13,6 +13,11 @@ import './Layout.css';
 
 interface LayoutProps {
   children: ReactNode;
+  /**
+   * 상단 데이터 지연 배너 노출 여부. 오늘의 접촉 화면은 배너 대신 출처별 '데이터 기준' 도장을
+   * 직접 보여주므로 false로 둔다(NH-Campaigner-UI-proposal.html 변경 포인트 3).
+   */
+  showDataDelayBanner?: boolean;
 }
 
 /** 사이드바 메뉴 아이콘 20px (9-style-guide.md §7) — 아이콘 라이브러리 없이 인라인 SVG로 둔다 */
@@ -47,7 +52,7 @@ function NavIcon({ path }: { path: string }) {
   );
 }
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({ children, showDataDelayBanner = true }: LayoutProps) {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const navItems = user ? navItemsFor(user.role) : [];
@@ -97,7 +102,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <main className="layout__content">
             <div className="layout__content-inner">
-              <DataDelayBanner />
+              {showDataDelayBanner && <DataDelayBanner />}
               {children}
             </div>
           </main>

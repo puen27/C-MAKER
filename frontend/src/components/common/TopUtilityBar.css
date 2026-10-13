@@ -1,33 +1,56 @@
-/* 상단 유틸리티 바 — docs/9-style-guide.md §5.8 */
+/* 상단 유틸리티 바 — docs/9-style-guide.md §5.8, NH-Campaigner-UI-proposal.html 변경 포인트 1 */
 .utility-bar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  min-height: 64px;
   background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-2) var(--space-6);
+  border-top: 3px solid var(--primary);
+  border-bottom: 1px solid var(--line);
+  padding: 0 var(--space-5);
 }
 .utility-bar__row {
   display: flex;
+  flex: 1;
   align-items: center;
   justify-content: space-between;
-  min-height: 28px;
+  gap: var(--space-4);
+}
+.utility-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.utility-bar__divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
 }
 .utility-bar__logo {
   font-weight: var(--font-weight-bold);
-  color: var(--color-primary);
-  font-size: var(--font-size-lg);
+  color: var(--primary);
+  font-size: 19px;
   line-height: var(--line-height-tight);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.utility-bar__descriptor {
+  margin-left: calc(-1 * var(--space-2));
+  font-size: 13px;
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 .utility-bar__user {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
-.utility-bar__name {
-  color: var(--color-text);
+.utility-bar__name strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 .utility-bar__timer {
   font-variant-numeric: tabular-nums;
@@ -39,29 +62,26 @@
 .utility-bar__link {
   background: none;
   border: none;
-  padding: 0;
+  padding: 4px 2px;
   cursor: pointer;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  text-decoration: underline;
-  text-decoration-color: var(--color-border);
-  text-underline-offset: 3px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
 }
 .utility-bar__link:hover:not(:disabled) {
-  color: var(--color-primary);
-  text-decoration-color: currentColor;
+  color: var(--primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .utility-bar__link:disabled {
   color: var(--color-text-disabled);
   cursor: not-allowed;
 }
-.utility-bar__aux {
-  align-self: flex-end;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
 @media (max-width: 1279px) {
   .utility-bar {
-    padding: var(--space-2) var(--space-4);
+    padding: 0 var(--space-4);
+  }
+  .utility-bar__descriptor {
+    display: none;
   }
 }

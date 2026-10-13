@@ -1,5 +1,6 @@
 // 상단 유틸리티 바 (NAME-F01) — docs/8-wireframe.md §1, docs/9-style-guide.md §5.8
-// 로고 · 사용자명 · 세션 타이머(만료 5분 전 경고색) · 연장 · 로그아웃, 아래 줄에 보조 안내.
+// 공식 시그니처 | NH Campaigner + 부제 · 사용자명·역할 · 세션 타이머(만료 5분 전 경고색) · 연장 · 로그아웃.
+// (NH-Campaigner-UI-proposal.html 변경 포인트 1)
 // 세션이 만료되면 자동으로 로그아웃한다(USER.session_timeout_minutes).
 
 import { useEffect, useState } from 'react';
@@ -7,7 +8,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/authStore';
 import { useRefreshSessionMutation } from '../../queries/useAuth';
+import { ROLE_LABEL } from '../../types/auth';
 import { formatCountdown } from '../../utils/date';
+import { BrandSignature } from './BrandSignature';
 import './TopUtilityBar.css';
 
 const WARNING_SECONDS = 5 * 60;
@@ -52,10 +55,17 @@ export function TopUtilityBar() {
   return (
     <header className="utility-bar">
       <div className="utility-bar__row">
-        <span className="utility-bar__logo">C-MAKER</span>
+        <div className="utility-bar__brand">
+          <BrandSignature />
+          <span className="utility-bar__divider" aria-hidden="true" />
+          <span className="utility-bar__logo">NH Campaigner</span>
+          <span className="utility-bar__descriptor">영업점 아웃바운드 캠페인 에이전트</span>
+        </div>
         {user && (
           <div className="utility-bar__user">
-            <span className="utility-bar__name">{user.name} 님</span>
+            <span className="utility-bar__name">
+              <strong>{user.name}</strong> {ROLE_LABEL[user.role]}
+            </span>
             <span aria-hidden="true">·</span>
             <span
               className={`utility-bar__timer ${isWarning ? 'is-warning' : ''}`}
@@ -82,7 +92,6 @@ export function TopUtilityBar() {
           </div>
         )}
       </div>
-      <div className="utility-bar__aux">고객센터 · 도움말</div>
     </header>
   );
 }

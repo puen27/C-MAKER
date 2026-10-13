@@ -3,6 +3,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { BrandSignature } from '../components/common/BrandSignature';
 import { Button } from '../components/common/Button';
 import { useLoginMutation } from '../queries/useAuth';
 import { useAuthStore } from '../stores/authStore';
@@ -35,8 +36,10 @@ export function LoginPage() {
     <main className="login-page">
       <div className="login-page__column">
         <header className="login-page__brand">
-          <h1 className="login-page__title">C-MAKER</h1>
+          <BrandSignature size="lg" />
+          <h1 className="login-page__title">NH Campaigner</h1>
           <p className="login-page__tagline">오늘 만날 사업장과 그 근거를 매일 아침 정리합니다.</p>
+          <p className="login-page__demo">NH농협은행 AI Agent 챌린지 시연용</p>
         </header>
 
         <form className="login-page__card" onSubmit={handleSubmit} aria-label="로그인">

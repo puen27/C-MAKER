@@ -1,0 +1,63 @@
+/* 데이터 기준 도장 — NH-Campaigner-UI-proposal.html .stamp */
+.data-stamps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.data-stamps__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.data-stamps__label {
+  margin-right: 2px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+/* 도장 기본 모양은 SourceStamp.css. 지연: 옐로우는 늘 글자 라벨과 함께 쓴다 */
+.data-stamp.is-fallback {
+  border-color: var(--status-hold);
+}
+.data-stamp__delay {
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--status-hold);
+  color: var(--status-hold-ink);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.data-stamp.is-unavailable .data-stamp__date {
+  color: var(--ink-3);
+  font-weight: var(--font-weight-medium);
+}
+
+.data-stamps__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.data-stamps__notice::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-hold);
+}
+.data-stamps__notice.is-error {
+  color: var(--color-danger);
+}
+.data-stamps__dismiss {
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 13px;
+  cursor: pointer;
+}

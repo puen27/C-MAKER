@@ -1,21 +1,42 @@
 /*
  * 디자인 토큰 (docs/9-style-guide.md v1.3.0 §2.1, §3, §4 라이트 테마 기준)
+ * 색상은 NH-Campaigner-UI-proposal.html '개발 전달용' CI 변수로 교체했다(브랜드 = Human Blue).
  * 이 파일의 값을 임의로 바꾸거나 새 색상/스페이싱 값을 추가하지 않는다.
  * 스타일 변경이 필요하면 ui-designer 에이전트 / 9-style-guide.md 갱신을 통해 반영한다.
  */
 :root {
-  /* Brand / Accent */
-  --color-primary: #00a651;
-  --color-primary-hover: #00913f;
-  --color-primary-bg: #e2f5ea;
+  /* 농협 CI — 화면용 값, 사내 매뉴얼 값으로 최종 확인 (NH-Campaigner-UI-proposal.html '개발 전달용') */
+  --nh-human-blue:   #0066B3;  /* 주 색: 버튼, 링크, 선택 */
+  --nh-nature-green: #1FB25A;  /* 브랜드 그린 */
+  --nh-heart-yellow: #FFC20E;  /* 보류, 강조 */
+
+  --primary:         var(--nh-human-blue);
+  --primary-strong:  #00528F;  /* 버튼 hover */
+  --primary-tint:    #EAF2FA;  /* 선택 배경 */
+  --ink:             #1B2A38;  /* 본문 */
+  --ink-2:           #47596B;  /* 보조 글자 */
+  --ink-3:           #637284;  /* 흐린 글자 (흰 배경 4.9:1) */
+  --line:            #DCE3EA;
+  --paper:           #F3F5F7;  /* 앱 배경 */
+
+  --status-visited:  #13803F;  /* 방문함, 흰 글자 5.0:1 */
+  --status-hold:     var(--nh-heart-yellow);
+  --status-hold-ink: #3B2C00;  /* 보류 버튼 글자 8.4:1 */
+  --status-excluded: #5B6875;  /* 부적합, 흰 글자 5.7:1 */
+
+  /* Brand / Accent — 기존 토큰 이름은 유지하고 CI 변수를 가리킨다 */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-strong);
+  --color-primary-bg: var(--primary-tint);
 
   /* Neutral */
-  --color-bg: #f5f6f6;
+  --color-bg: var(--paper);
   --color-surface: #ffffff;
   --color-surface-alt: #f0f2f2;
-  --color-border: #dfe3e3;
-  --color-text: #16191a;
-  --color-text-secondary: #6b7576;
+  --color-border: var(--line);
+  --color-text: var(--ink);
+  --color-text-secondary: var(--ink-2);
+  --color-text-muted: var(--ink-3);
   --color-text-disabled: #a3aaab;
 
   /* Semantic */

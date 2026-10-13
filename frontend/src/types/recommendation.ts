@@ -18,7 +18,7 @@ export const REJECTED_REASON_LABEL: Record<RejectedReason, string> = {
 };
 
 export const TAG_STATUS_LABEL: Record<TagStatus, string> = {
-  UNTAGGED: '미태깅',
+  UNTAGGED: '기록 전',
   VISITED: '방문함',
   HOLD: '보류',
   REJECTED: '부적합',

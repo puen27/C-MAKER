@@ -1,166 +1,296 @@
-/* 상담 브리프 상세 — docs/8-wireframe.md §4 */
+/* 상담 브리프 상세 — docs/8-wireframe.md §4, NH-Campaigner-UI-proposal.html 화면 2 */
+.brief-detail__icon,
+.brief-detail__foot svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .brief-detail__back {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  color: var(--color-text-secondary);
+  gap: 6px;
+  margin-bottom: 14px;
+  color: var(--ink-2);
   font-size: var(--font-size-sm);
   text-decoration: none;
-  margin-bottom: var(--space-4);
 }
 .brief-detail__back:hover,
 .brief-detail__back:focus-visible {
-  color: var(--color-primary);
+  color: var(--primary);
 }
 
-.brief-detail__header {
-  margin-bottom: var(--space-5);
-}
-.brief-detail__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  margin-top: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-}
-.brief-detail__address::before {
-  content: '';
-  display: inline-block;
-  width: 1px;
-  height: 12px;
-  margin-right: var(--space-3);
-  background: var(--color-border);
-  vertical-align: -1px;
-}
-
-/* 읽을 것(좌) · 할 일(우) */
+/* 읽을 것(좌) · 통화와 기록(우, 고정) */
 .brief-detail__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 372px;
   gap: var(--space-5);
   align-items: start;
 }
-.brief-detail__sheet,
+.brief-detail__card,
 .brief-detail__panel {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
-.brief-detail__sheet {
-  padding: var(--space-5) var(--space-6);
+.brief-detail__card {
+  padding: 22px var(--space-5);
 }
-.brief-detail__aside {
+.brief-detail__card + .brief-detail__card {
+  margin-top: var(--space-4);
+}
+.brief-detail__rail {
   position: sticky;
-  top: var(--space-5);
+  top: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 .brief-detail__panel {
-  padding: var(--space-4) var(--space-5) var(--space-5);
+  padding: 18px;
 }
 
-.brief-detail__section + .brief-detail__section {
-  margin-top: var(--space-5);
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--color-border);
-}
-.brief-detail__heading {
-  font-size: var(--font-size-sm);
+/* 사업장 */
+.brief-detail__name {
+  margin: 0 0 14px;
+  font-size: var(--font-size-xl);
+  line-height: 1.25;
   font-weight: var(--font-weight-bold);
-  color: var(--color-text-secondary);
-  margin: 0 0 var(--space-3);
+  letter-spacing: -0.015em;
+}
+.brief-detail__facts-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) 28px;
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+.brief-detail__facts-list div {
+  display: flex;
+  gap: var(--space-2);
+}
+.brief-detail__facts-list dt {
+  color: var(--ink-3);
+}
+.brief-detail__facts-list dd {
+  margin: 0;
 }
 
-.brief-detail__facts {
-  list-style: none;
+/* 근거 */
+.brief-detail__sec-title {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  /* 한글 본문 기준 한 줄 45자 안팎 */
+  font-size: 19px;
+  font-weight: var(--font-weight-bold);
+}
+.brief-detail__sec-sub {
+  margin: var(--space-1) 0 14px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.brief-detail__key {
+  padding: 14px var(--space-4);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--primary-tint);
+}
+.brief-detail__lbl {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--primary);
+}
+.brief-detail__key p {
+  margin: 0 0 10px;
+  font-size: 15.5px;
+  line-height: 1.6;
   max-width: 45em;
 }
-.brief-detail__fact {
-  font-size: var(--font-size-md);
-  line-height: var(--line-height-normal);
-  color: var(--color-text);
+.brief-detail__more {
+  margin-top: 18px;
 }
-/* 출처 태그는 문장 바로 아래 줄에 둔다 — 문장 길이와 무관하게 같은 자리에서 확인할 수 있게 */
-.brief-detail__source-tag {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-tight);
-  color: var(--color-text-secondary);
-  font-family: var(--font-family-mono);
+.brief-detail__more .brief-detail__lbl {
+  color: var(--ink-3);
 }
-
-/* 화법은 실제로 소리 내어 읽는 문장이라 인용 블록으로 구분한다 */
-.brief-detail__script {
+.brief-detail__more ul {
+  list-style: none;
   margin: 0;
-  padding: var(--space-4) var(--space-5);
-  background: var(--color-surface-alt);
-  border-left: 3px solid var(--color-primary);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  font-size: var(--font-size-md);
-  line-height: var(--line-height-normal);
+  padding: 0;
 }
-.brief-detail__script p {
-  margin: 0;
+.brief-detail__more li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+  line-height: 1.55;
 }
-.brief-detail__script p + p {
-  margin-top: var(--space-2);
-}
-
 .brief-detail__muted {
+  margin: 0;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  margin: var(--space-2) 0 0;
+  color: var(--ink-3);
 }
 
+/* 방문 전 확인 */
 .brief-detail__checklist {
   list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--space-5);
+  margin: var(--space-2) 0 0;
   padding: 0;
-  margin: 0;
-}
-.brief-detail__checklist li + li {
-  border-top: 1px solid var(--color-border);
 }
 .brief-detail__check {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
+.brief-detail__checklist li:nth-child(-n + 2) .brief-detail__check {
+  border-top: 0;
+}
 .brief-detail__check input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  flex-shrink: 0;
-  accent-color: var(--color-primary);
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--primary);
   cursor: pointer;
 }
 .brief-detail__check input:checked + span {
-  color: var(--color-text-secondary);
+  color: var(--ink-3);
   text-decoration: line-through;
   text-decoration-color: var(--color-text-disabled);
+}
+
+/* 전화 화법 */
+.brief-detail__call-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.brief-detail__panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0;
+}
+.brief-detail__ai {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--primary);
+  border-radius: 11px;
+  color: var(--primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+.brief-detail__ai.is-template {
+  border-color: var(--line);
+  color: var(--ink-3);
+}
+.brief-detail__btn-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.brief-detail__btn-line:hover {
+  border-color: var(--ink-3);
+}
+.brief-detail__call-sub {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.brief-detail__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.brief-detail__steps li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+.brief-detail__steps li:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+.brief-detail__step-k {
+  padding-top: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.brief-detail__steps p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+.brief-detail__copy-notice {
+  margin: var(--space-2) 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* 접촉 결과 */
+.brief-detail__result {
+  margin-top: var(--space-3);
+}
+.brief-detail__hint {
+  margin: var(--space-3) 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.brief-detail__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 
 @media (max-width: 1279px) {
   .brief-detail__layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .brief-detail__aside {
+  .brief-detail__rail {
     position: static;
   }
-  .brief-detail__sheet {
-    padding: var(--space-4) var(--space-5);
+  .brief-detail__checklist {
+    grid-template-columns: 1fr;
+  }
+  .brief-detail__checklist li:nth-child(2) .brief-detail__check {
+    border-top: 1px solid var(--line);
   }
 }

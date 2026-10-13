@@ -1,102 +1,109 @@
-/* 추천 카드 — docs/9-style-guide.md §5.4 */
-.rec-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    'rank body score'
-    '.    actions actions';
-  column-gap: var(--space-4);
-  row-gap: var(--space-2);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-4);
-  cursor: pointer;
-  transition: border-color 0.15s ease, opacity 0.15s ease;
-}
-.rec-card:hover {
-  border-color: var(--color-text-disabled);
-}
-.rec-card:hover .rec-card__name {
-  color: var(--color-primary);
-}
-
-/* 태깅 완료 카드는 흐리게 하되 목록에서 사라지지 않는다(재태깅 가능성 유지) */
-.rec-card.is-tagged {
-  opacity: 0.75;
-}
-.rec-card.is-tagged:hover,
-.rec-card.is-tagged:focus-within {
-  opacity: 1;
-}
-
-.rec-card__rank {
-  grid-area: rank;
-}
-
-.rec-card__body {
-  grid-area: body;
-  min-width: 0;
-}
-
-.rec-card__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 32px;
-}
-
-.rec-card__name {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  text-decoration: none;
-  line-height: var(--line-height-tight);
-}
-.rec-card__name:hover,
-.rec-card__name:focus-visible {
-  color: var(--color-primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.rec-card__score {
-  grid-area: score;
-  align-self: start;
-  line-height: 32px;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.rec-card__reason {
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
-  margin: var(--space-1) 0 0;
-}
-
-.rec-card__source-tag {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  font-family: var(--font-family-mono);
-  margin-left: var(--space-2);
-  white-space: nowrap;
-}
-
-.rec-card__actions {
-  grid-area: actions;
-  display: flex;
-  cursor: default;
-}
-
+/* 명부 한 줄 행 — NH-Campaigner-UI-proposal.html .rows / .row */
 .rec-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.rec-list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.rec-row {
+  display: grid;
+  grid-template-columns: 28px 200px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 13px 18px 13px var(--space-4);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.rec-row:hover {
+  background: #f8fafc;
+}
+.rec-row:hover .rec-row__name {
+  color: var(--primary);
+}
+.rec-row--visited {
+  box-shadow: inset 3px 0 0 var(--status-visited);
+}
+.rec-row--hold {
+  box-shadow: inset 3px 0 0 var(--status-hold);
+}
+.rec-row--rejected {
+  box-shadow: inset 3px 0 0 var(--status-excluded);
+}
+.rec-row--rejected .rec-row__name,
+.rec-row--rejected .rec-row__reason {
+  color: var(--ink-3);
+}
+
+.rec-row__rank {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rec-row__who {
+  min-width: 0;
+}
+.rec-row__name {
+  display: block;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+  color: var(--ink);
+  text-decoration: none;
+}
+.rec-row__name:hover,
+.rec-row__name:focus-visible {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rec-row__industry {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.rec-row__why {
+  min-width: 0;
+}
+.rec-row__reason {
+  margin: 0 0 7px;
+  overflow: hidden;
+  font-size: 14.5px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.rec-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.rec-row__actions {
+  display: flex;
+  cursor: default;
+}
+.rec-row__actions .tag-buttons {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+/* 좁은 화면: 사유를 이름 아래로, 버튼은 다음 줄로 */
+@media (max-width: 1279px) {
+  .rec-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    row-gap: var(--space-2);
+  }
+  .rec-row__why,
+  .rec-row__actions {
+    grid-column: 2;
+  }
+  .rec-row__reason {
+    white-space: normal;
+  }
 }

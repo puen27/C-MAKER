@@ -1,0 +1,70 @@
+/* 신호별 대상 — NH-Campaigner-UI-proposal.html .bars / .bar-btn */
+.signal-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: var(--space-4) 18px;
+}
+.signal-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0;
+}
+.signal-panel__sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.signal-panel__bars {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+.signal-panel__bar {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+.signal-panel__bar:hover,
+.signal-panel__bar[aria-pressed='true'] {
+  background: var(--primary-tint);
+  color: var(--ink);
+}
+.signal-panel__bar[aria-pressed='true'] {
+  font-weight: 600;
+}
+.signal-panel__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.signal-panel__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.signal-panel__fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary);
+}
+.signal-panel__n {
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

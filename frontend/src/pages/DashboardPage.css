@@ -1,31 +1,147 @@
-/* 오늘의 접촉 TOP 20 — docs/8-wireframe.md §3 */
-.dashboard-page__header {
+/* 오늘의 접촉 TOP 20 — docs/8-wireframe.md §3, NH-Campaigner-UI-proposal.html */
+.dashboard-page__band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px 272px;
+  gap: 20px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+/* 아침 브리핑 */
+.dashboard-page__hero {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding-bottom: var(--space-5);
-  margin-bottom: var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-}
-.dashboard-page__title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  min-width: 0;
+  padding-right: var(--space-2);
 }
 .dashboard-page__date {
-  margin-left: var(--space-3);
+  margin: 0 0 6px;
+  font-size: var(--font-size-sm);
+  color: var(--ink-2);
+}
+.dashboard-page__headline {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.25;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.015em;
+}
+.dashboard-page__lede {
+  margin: var(--space-2) 0 0;
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-regular);
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
+  color: var(--ink-2);
+  max-width: 46ch;
 }
 .dashboard-page__note {
+  margin: var(--space-2) 0 0;
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  margin: calc(-1 * var(--space-2)) 0 0;
+  color: var(--ink-3);
+}
+.dashboard-page__basis {
+  margin-top: var(--space-4);
+}
+
+/* 명부 시트: 기록 상태 탭 + 도구 + 행 목록 */
+.dashboard-page__sheet {
+  background: var(--color-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 .dashboard-page__filter-row {
-  margin: var(--space-2) 0 var(--space-4);
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: 6px var(--space-3) 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.dashboard-page__filter-row .tabs {
+  flex: 1;
+  border-bottom: 0;
+}
+.dashboard-page__filter-row .tab {
+  font-size: var(--font-size-sm);
+  padding: var(--space-3) 0 11px;
+}
+.dashboard-page__tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding-bottom: var(--space-2);
+}
+.dashboard-page__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0 var(--space-1) 0 10px;
+  border-radius: 14px;
+  background: var(--primary-tint);
+  color: var(--primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dashboard-page__chip button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--primary);
+  cursor: pointer;
+}
+.dashboard-page__chip button:hover {
+  background: var(--color-surface);
+}
+.dashboard-page__chip svg,
+.dashboard-page__foot svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dashboard-page__state {
+  padding: var(--space-6) var(--space-5);
+}
+/* 시트 안의 빈 목록 안내는 점선 상자 대신 가운데 정렬 문구만 */
+.dashboard-page__sheet .state-panel {
+  border: 0;
+  border-radius: 0 0 10px 10px;
+  padding: 40px 20px;
+  color: var(--ink-3);
+}
+
+/* 투명성 문구 */
+.dashboard-page__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+@media (max-width: 1279px) {
+  .dashboard-page__band {
+    grid-template-columns: 1fr 1fr;
+  }
+  .dashboard-page__hero {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 767px) {
+  .dashboard-page__band {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-page__filter-row {
+    flex-wrap: wrap;
+  }
 }

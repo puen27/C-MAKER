@@ -22,19 +22,20 @@
   color: var(--color-text-secondary);
 }
 
+/* 기록 상태 배지 — 기록 버튼과 같은 CI 상태색(NH-Campaigner-UI-proposal.html 변경 포인트 8) */
 .badge--visited {
-  color: var(--color-success);
-  background: var(--color-success-bg);
+  color: #ffffff;
+  background: var(--status-visited);
 }
 
 .badge--hold {
-  color: var(--color-warning);
-  background: var(--color-warning-bg);
+  color: var(--status-hold-ink);
+  background: var(--status-hold);
 }
 
 .badge--rejected {
-  color: var(--color-danger);
-  background: var(--color-danger-bg);
+  color: #ffffff;
+  background: var(--status-excluded);
 }
 
 .badge--info {
