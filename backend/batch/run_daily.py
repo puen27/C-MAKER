@@ -662,7 +662,9 @@ def target_branch(
     events_by_id = {event.event_id: event for event in events}
     for item in ranked:
         candidate = candidates_by_id[item.candidate.business_id]
-        reason_facts = build_reason_facts(candidate, item.candidate, events_by_id, config)
+        reason_facts = build_reason_facts(
+            candidate, item.candidate, events_by_id, config, reference_date=target_date
+        )
         result.brief_jobs.append(
             BriefJob(
                 branch_id=branch.id,

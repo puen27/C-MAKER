@@ -121,6 +121,11 @@ export function DashboardPage() {
           )}
         </div>
 
+        {/* 오늘 명부가 없으면 TodayRecordPanel이 숨겨지므로 어제 미기록 안내(UC-09)를 따로 보여준다 */}
+        {recommendations.length === 0 && (summary?.yesterdayUntaggedCount ?? 0) > 0 && (
+          <Banner tone="info">어제 명부에서 기록하지 않은 곳이 {summary?.yesterdayUntaggedCount}곳 있습니다.</Banner>
+        )}
+
         {summary?.areaReasonRatioExceeded && (
           <Banner tone="info">
             오늘 명부의 {summary.areaReasonRatio}%가 상권 공통 사유만으로 선정되었습니다(기준{' '}

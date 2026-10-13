@@ -18,7 +18,7 @@ from backend.batch.briefing.llm_client import LlmClient, LlmUnavailableError
 from backend.common.config import BriefingConfig
 from backend.common.schemas.brief import BriefContent, BriefInput
 
-PROMPT_VERSION = "brief-v3"
+PROMPT_VERSION = "brief-v4"
 
 # call_reason/call_purpose가 비어 있을 때(구 입력·테스트)의 기본값
 _FALLBACK_CALL_REASON = "저희 지점 담당 상권에서 영업 중이신 사업장께 인사드리고자"
@@ -38,7 +38,19 @@ SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화�
 5. script 배열의 각 원소는 정확히 한 문장이어야 한다. 한 원소에 여러 문장을 합치지 마라.
 6. '문을 여신'처럼 '여신'이 들어가는 존댓말은 상품 용어로 오인되어 차단되므로 '개업하신', '여셨다'로 쓴다.
 7. 수치는 facts에 적힌 그대로(부호 포함) 쓴다.
-8. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+8. 1문장은 "안녕하세요 사장님, {org_name} {branch_name}에서 … 연락드렸습니다."처럼 한 문장으로 잇는다. "~입니다," 처럼 종결어미 뒤에 쉼표를 붙여 문장을 이어 쓰지 마라.
+9. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+
+
+
+def polish_greeting(script: list[str], org_name: str, branch_name: str) -> list[str]:
+    """첫 문장의 '{기관} {지점}입니다, ' 를 '{기관} {지점}에서 ' 로 바꾼다. 내용(사실·수치)은 바꾸지 않는다."""
+    if not script:
+        return script
+    first = script[0]
+    for prefix in (f"{org_name} {branch_name}", branch_name):
+        first = re.sub(re.escape(prefix) + r"입니다,\s*", f"{prefix}에서 ", first, count=1)
+    return [first, *script[1:]]
 
 
 def _call_reason(brief_input: BriefInput) -> str:
@@ -134,7 +146,9 @@ def generate_brief(
             result = llm.complete(SYSTEM_PROMPT, user_prompt, max_tokens=config.max_output_tokens)
             latency_ms = int((time.monotonic() - started) * 1000)
             script, script_errors = validate_script(
-                parse_llm_script_strict(result.text),
+                polish_greeting(
+                    parse_llm_script_strict(result.text), config.greeting_org_name, brief_input.branch_name
+                ),
                 facts,
                 config,
                 allowed_context=allowed_context,

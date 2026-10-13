@@ -65,13 +65,19 @@ def _parse_date(value: Any) -> date | None:
         return None
 
 
-def _event_fact(event: ActiveEvent) -> _Built | None:
+def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Built | None:
+    """reference_date: 명부 생성일. 경과일은 이 날짜 기준으로 센다(없으면 이벤트 기준일).
+
+    이벤트는 활성 기간 동안 여러 날 명부에 재사용되므로, 이벤트 기준일로 세면
+    며칠 뒤 명부에서도 '인허가 후 1일'처럼 오래된 경과일이 표시된다.
+    """
     detail = event.detail or {}
     kind = event.signal_type
     if kind == "NEW_BUSINESS_OPENING":
         licensed_raw = detail.get("licensed_on") or event.as_of_date.isoformat()
         licensed = _parse_date(licensed_raw)
-        elapsed = max(0, (event.as_of_date - licensed).days) if licensed else None
+        base_date = reference_date or event.as_of_date
+        elapsed = max(0, (base_date - licensed).days) if licensed else None
         elapsed_text = f"인허가 후 {elapsed}일 지난" if elapsed else "막 인허가를 받은"
         return _Built(
             text=(
@@ -184,6 +190,7 @@ def build_reason_facts(
     config: PipelineConfig,
     *,
     max_event_facts: int = 3,
+    reference_date: date | None = None,
 ) -> list[ReasonFact]:
     """기여도 높은 이벤트 순으로 사실 문장을 만들고, 마지막에 모집단(공개 데이터) 사실을 붙인다.
 
@@ -197,7 +204,7 @@ def build_reason_facts(
         event = events_by_id.get(contribution.event_id)
         if event is None or event.signal_type in seen_types:
             continue
-        built = _event_fact(event)
+        built = _event_fact(event, reference_date)
         if built is None:
             continue
         seen_types.add(event.signal_type)

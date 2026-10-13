@@ -38,32 +38,38 @@ export function DataFreshnessStamps() {
   }, []);
 
   const freshness = freshnessQuery.data;
-  if (!user || !freshness || freshness.sources.length === 0) return null;
+  if (!user || !freshness) return null;
+  const hasSources = freshness.sources.length > 0;
+  const showNotice = freshness.delayed && Boolean(freshness.message);
+  // 배치 미완료·실패로 소스 정보가 없어도 지연 안내와 재연동 버튼(UC-18)은 보여야 한다.
+  if (!hasSources && !showNotice && !completion) return null;
   const showTrigger = canTriggerBatch(user.role);
 
   return (
     <div className="data-stamps">
-      <div className="data-stamps__row">
-        <span className="data-stamps__label">데이터 기준</span>
-        {freshness.sources.map((source) => {
-          const fallback = isFallback(source);
-          const unavailable = source.status === 'UNAVAILABLE';
-          return (
-            <SourceStamp
-              key={source.sourceName}
-              className={`${fallback ? 'is-fallback' : ''} ${unavailable ? 'is-unavailable' : ''}`}
-              title={describe(source)}
-              source={source.displayName}
-              date={source.latestAsOfDate}
-              dateLabel={unavailable ? '미수집' : source.latestAsOfDate ? undefined : '—'}
-            >
-              {fallback && <span className="data-stamp__delay">지연</span>}
-              <span className="sr-only">{describe(source)}</span>
-            </SourceStamp>
-          );
-        })}
-      </div>
-      {freshness.delayed && freshness.message && (
+      {hasSources && (
+        <div className="data-stamps__row">
+          <span className="data-stamps__label">데이터 기준</span>
+          {freshness.sources.map((source) => {
+            const fallback = isFallback(source);
+            const unavailable = source.status === 'UNAVAILABLE';
+            return (
+              <SourceStamp
+                key={source.sourceName}
+                className={`${fallback ? 'is-fallback' : ''} ${unavailable ? 'is-unavailable' : ''}`}
+                title={describe(source)}
+                source={source.displayName}
+                date={source.latestAsOfDate}
+                dateLabel={unavailable ? '미수집' : source.latestAsOfDate ? undefined : '—'}
+              >
+                {fallback && <span className="data-stamp__delay">지연</span>}
+                <span className="sr-only">{describe(source)}</span>
+              </SourceStamp>
+            );
+          })}
+        </div>
+      )}
+      {showNotice && (
         <div className="data-stamps__notice" role="status">
           <span>{freshness.message}</span>
           {showTrigger && <ManualBatchTrigger onFinished={handleFinished} />}
