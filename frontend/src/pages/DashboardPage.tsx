@@ -76,11 +76,11 @@ export function DashboardPage() {
           : recommendations.filter((rec) => rec.tagStatus === item.value).length,
   }));
 
-  // 아침 브리핑 문장(변경 포인트 2): "오늘 만날 {전체 수}곳을 골랐습니다." "{1순위 신호} {그 신호 수}곳이 먼저입니다."
+  // 아침 브리핑 문장(변경 포인트 2): "오늘 만날 {전체 수}곳을 선정했습니다." "{1순위 신호} {그 신호 수}곳이 먼저입니다."
   // 신호 코드가 없어 1순위 추천의 출처명을 신호 대신 쓴다.
   const topGroup = sourceGroups[0];
   const headline =
-    recommendations.length > 0 ? `오늘 만날 ${recommendations.length}곳을 골랐습니다` : '오늘의 접촉';
+    recommendations.length > 0 ? `오늘 만날 ${recommendations.length}곳을 선정했습니다` : '오늘의 접촉';
   const lede = topGroup && sourceGroups.length > 1 ? `${topGroup.source} 근거 ${topGroup.count}곳이 먼저입니다.` : null;
 
   function handleTag(rec: Recommendation, status: TagStatus, rejectedReason?: RejectedReason) {

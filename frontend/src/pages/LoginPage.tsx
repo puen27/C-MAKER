@@ -38,8 +38,8 @@ export function LoginPage() {
         <header className="login-page__brand">
           <BrandSignature size="lg" />
           <h1 className="login-page__title">NH Campaigner</h1>
-          <p className="login-page__tagline">오늘 만날 사업장과 그 근거를 매일 아침 정리합니다.</p>
-          <p className="login-page__demo">NH농협은행 AI Agent 챌린지 시연용</p>
+          <p className="login-page__tagline">영업점 아웃바운드 캠페인 에이전트</p>
+          <p className="login-page__demo">NH농협은행 AI Agent 챌린지</p>
         </header>
 
         <form className="login-page__card" onSubmit={handleSubmit} aria-label="로그인">
