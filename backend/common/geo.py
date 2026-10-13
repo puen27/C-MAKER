@@ -80,3 +80,36 @@ def extract_sido(address: str | None) -> str | None:
         return None
     first = address.strip().split()[0] if address.strip() else ""
     return _SIDO_ALIASES.get(first)
+
+
+# ─────────────────────────── 기상청 동네예보 격자 ───────────────────────────
+# 기상청 단기예보 조회서비스 활용가이드의 Lambert Conformal Conic 격자(5km) 변환식.
+_KMA_RE_KM = 6371.00877
+_KMA_GRID_KM = 5.0
+_KMA_SLAT1, _KMA_SLAT2 = 30.0, 60.0
+_KMA_OLON, _KMA_OLAT = 126.0, 38.0
+_KMA_XO, _KMA_YO = 43, 136
+
+
+def kma_grid(lat: float, lng: float) -> tuple[int, int]:
+    """WGS84 위경도 → 기상청 단기예보 격자 (nx, ny)."""
+    degrad = math.pi / 180.0
+    re = _KMA_RE_KM / _KMA_GRID_KM
+    slat1, slat2 = _KMA_SLAT1 * degrad, _KMA_SLAT2 * degrad
+    olon, olat = _KMA_OLON * degrad, _KMA_OLAT * degrad
+
+    sn = math.log(math.cos(slat1) / math.cos(slat2)) / math.log(
+        math.tan(math.pi * 0.25 + slat2 * 0.5) / math.tan(math.pi * 0.25 + slat1 * 0.5)
+    )
+    sf = (math.tan(math.pi * 0.25 + slat1 * 0.5) ** sn) * math.cos(slat1) / sn
+    ro = re * sf / (math.tan(math.pi * 0.25 + olat * 0.5) ** sn)
+    ra = re * sf / (math.tan(math.pi * 0.25 + lat * degrad * 0.5) ** sn)
+    theta = lng * degrad - olon
+    if theta > math.pi:
+        theta -= 2.0 * math.pi
+    if theta < -math.pi:
+        theta += 2.0 * math.pi
+    theta *= sn
+    nx = math.floor(ra * math.sin(theta) + _KMA_XO + 0.5)
+    ny = math.floor(ro - ra * math.cos(theta) + _KMA_YO + 0.5)
+    return int(nx), int(ny)

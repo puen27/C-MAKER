@@ -137,6 +137,14 @@
   color: var(--ink-3);
 }
 
+/* 날씨 참고 (비·눈 예보) — 선정 사유와 구분되는 보조 정보 */
+.brief-detail__weather-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2, inherit);
+}
+
 /* 방문 전 확인 */
 .brief-detail__checklist {
   list-style: none;

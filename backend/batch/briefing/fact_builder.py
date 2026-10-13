@@ -143,6 +143,8 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
             call_reason="최근 지역 유가가 움직여 연료비 부담이 달라지셨을 것 같아",
             call_purpose="운영비 변화에 따른 자금 흐름 관리에서 필요하신 부분을 미리 여쭙고 도와드리고자",
         )
+    if kind in _FORECAST_KINDS:
+        return _forecast_fact(kind, detail)
     if kind == "WEATHER_WARNING":
         warning = detail.get("warning") or "기상특보"
         sido = detail.get("sido") or "지점 소재지"
@@ -157,6 +159,88 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
             call_purpose="날씨 때문에 매출이 흔들릴 때 필요하실 수 있는 자금 운용 지원을 지점에서 안내해 드리고자",
         )
     return None
+
+
+_FORECAST_KINDS = frozenset(
+    {"TEMP_SHIFT_FORECAST", "SEASON_SHIFT_FORECAST", "FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST"}
+)
+# 예보 사유의 화법 목적 — 상품·여신 용어 없이 운영 준비를 돕는다는 수준으로만 말한다.
+_FORECAST_CALL_PURPOSE = "계절이 바뀌는 시기에 필요하신 운영 자금 흐름이나 결제 관련 업무를 지점에서 미리 챙겨드리고자"
+
+
+def _md(iso: Any) -> str:
+    parsed = _parse_date(iso)
+    return f"{parsed.month}월 {parsed.day}일" if parsed else str(iso)
+
+
+def _deg(value: Any) -> str:
+    try:
+        return f"{float(value):g}°C"
+    except (TypeError, ValueError):
+        return f"{value}°C"
+
+
+def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
+    """예보 사실 문장 — 발표 시각과 '예보'를 반드시 밝힌다(단정하지 않음)."""
+    issued = detail.get("issued") or "최근 발표"
+    if kind == "TEMP_SHIFT_FORECAST":
+        diff = float(detail.get("diff") or 0)
+        direction = "낮을" if diff < 0 else "높을"
+        word = "하락" if diff < 0 else "상승"
+        return _Built(
+            text=(
+                f"기상청 단기예보({issued})에 따르면 {_md(detail.get('forecast_date'))} "
+                f"{detail.get('kind', '최저')}기온이 {_deg(detail.get('forecast_value'))}로 "
+                f"오늘({_deg(detail.get('today_value'))})보다 {abs(diff):g}°C {direction} 것으로 예보되었습니다. "
+                "기온이 크게 바뀌는 시기에는 계절 물품 준비나 영업 방식에 변화가 생기기 쉬워, "
+                "미리 안부를 여쭙기 좋은 시점입니다."
+            ),
+            summary=f"기온 {abs(diff):g}°C {word} 예보 — 계절 준비 수요 점검",
+            call_reason=f"기온이 크게 {'내려갈' if diff < 0 else '올라갈'} 것으로 예보되어 영업 준비에 불편은 없으신지 여쭙고자",
+            call_purpose=_FORECAST_CALL_PURPOSE,
+        )
+    if kind == "SEASON_SHIFT_FORECAST":
+        diff = float(detail.get("diff") or 0)
+        direction = "낮을" if diff < 0 else "높을"
+        word = "추워지는" if diff < 0 else "더워지는"
+        return _Built(
+            text=(
+                f"기상청 중기예보({detail.get('issued_mid') or issued})에 따르면 "
+                f"{_md(detail.get('far_start'))}~{_md(detail.get('far_end'))} 평균 최저기온이 "
+                f"{_deg(detail.get('far_mean'))}로, {_md(detail.get('near_start'))}~{_md(detail.get('near_end'))} "
+                f"평균({_deg(detail.get('near_mean'))})보다 {abs(diff):g}°C {direction} 것으로 예보되었습니다. "
+                "계절이 바뀌는 시기라 판매 품목 교체나 냉난방 준비 같은 운영 변화가 생기기 쉽습니다."
+            ),
+            summary=f"계절 전환 예보(평균 최저 {abs(diff):g}°C {'하락' if diff < 0 else '상승'}) — 계절 운영 준비 시기",
+            call_reason=f"날씨가 {word} 시기로 접어든다는 예보가 있어 계절 준비 상황을 여쭙고자",
+            call_purpose=_FORECAST_CALL_PURPOSE,
+        )
+    if kind == "FIRST_FREEZE_FORECAST":
+        day = _parse_date(detail.get("forecast_date"))
+        season_word = "올겨울" if day and day.month in (12, 1, 2) else "올가을"
+        origin = "중기예보" if detail.get("origin") == "중기" else "단기예보"
+        return _Built(
+            text=(
+                f"기상청 {origin}({issued})에 따르면 {_md(detail.get('forecast_date'))} 최저기온이 "
+                f"{_deg(detail.get('value'))}로, {season_word} 들어 처음 영하가 예보되었습니다. "
+                "난방 준비와 겨울철 운영 전환이 시작되는 시점입니다."
+            ),
+            summary=f"{season_word} 첫 영하 예보 — 겨울철 운영 준비 시기",
+            call_reason=f"{season_word} 첫 영하 날씨가 예보되어 겨울철 준비에 불편은 없으신지 여쭙고자",
+            call_purpose=_FORECAST_CALL_PURPOSE,
+        )
+    # FIRST_HEAT_FORECAST
+    origin = "중기예보" if detail.get("origin") == "중기" else "단기예보"
+    return _Built(
+        text=(
+            f"기상청 {origin}({issued})에 따르면 {_md(detail.get('forecast_date'))} 최고기온이 "
+            f"{_deg(detail.get('value'))}로, 올해 처음 폭염 수준(33°C 이상)이 예보되었습니다. "
+            "냉방·음료 수요가 커지는 시기라 여름철 운영 준비를 점검해 볼 시점입니다."
+        ),
+        summary="올해 첫 폭염 예보 — 여름철 운영 준비 시기",
+        call_reason="올해 첫 폭염 수준의 더위가 예보되어 여름철 준비에 불편은 없으신지 여쭙고자",
+        call_purpose=_FORECAST_CALL_PURPOSE,
+    )
 
 
 def _population_fact(candidate: BusinessCandidate) -> tuple[str, str]:

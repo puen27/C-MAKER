@@ -552,13 +552,14 @@ def test_daily_source_fallback_age_limits_are_configured():
     assert {
         name: source.options["max_fallback_age_days"]
         for name, source in CONFIG.sources.items()
-        if name in {"PERMIT_DAILY", "NTS_STATUS", "KMA_WARNING", "ECOS_FX", "OPINET_PRICE"}
+        if name in {"PERMIT_DAILY", "NTS_STATUS", "KMA_WARNING", "ECOS_FX", "OPINET_PRICE", "KMA_FORECAST"}
     } == {
         "PERMIT_DAILY": 3,
         "NTS_STATUS": 1,
         "KMA_WARNING": 1,
         "ECOS_FX": 7,
         "OPINET_PRICE": 2,
+        "KMA_FORECAST": 1,
     }
 
 

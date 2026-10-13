@@ -9,6 +9,12 @@ top_n = 20                    # RULE-TARGET-03: 탐색 슬롯을 포함한 총 2
 exploration_slots = 3         # RULE-TARGET-03
 exploration_enabled = false   # CLAUDE.md §9 — 탐색 슬롯 가동은 Phase 2. false면 3자리를 일반 후보로 채운다
 min_sample_for_update = 30    # RULE-LEARN-03 / CONST-09
+# 신호별 명부 상한(비율은 THRESHOLD_CONFIG.SIGNAL_SHARE_CAP_PCT): 주 사유가 아래 상권·거시 신호인 추천은
+# 한 종류당 지점 TOP N의 상한 비율까지만 싣고, 넘치는 자리는 다음 순위 후보로 채운다. 사업장 단위 신호는 제외.
+signal_share_capped_types = [
+  "FX_DAILY_CHANGE", "OIL_PRICE_CHANGE", "WEATHER_WARNING",
+  "TEMP_SHIFT_FORECAST", "SEASON_SHIFT_FORECAST", "FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST",
+]
 
 [scoring]
 proximity_min = 0.5           # 근접도: 지점 위치 1.0 → 담당 반경 경계 0.5 (선형)
@@ -25,6 +31,20 @@ oil_change_saturation_pct = 3.0     # 유가 일변동 3% 이상이면 1.0
 warning_intensity_advisory = 0.6    # 기상 주의보
 warning_intensity_alert = 1.0       # 기상 경보
 new_opening_max_age_days = 90       # 인허가일자가 이 기간 이내면 신규 개업 사업체 신호 강도 감쇠 기준
+
+[forecast]                    # 기상청 예보 신호 판정 고정값 (임계치 자체는 THRESHOLD_CONFIG에서 본부가 조정)
+shift_days = [1, 2]                 # 기온 급변: 내일·모레를 오늘과 비교
+temp_shift_saturation_c = 10.0      # 기온 급변 10°C 이상이면 강도 1.0
+season_shift_saturation_c = 8.0     # 계절 전환 8°C 이상이면 강도 1.0
+freeze_tmin_c = 0.0                 # 첫 영하: 최저기온이 이 값 미만
+heat_tmax_c = 33.0                  # 첫 폭염: 최고기온이 이 값 이상
+freeze_season_start_month = 9       # 첫 영하 시즌: 9월 1일 ~ 다음 해 2월 말
+heat_season_months = [5, 6, 7, 8, 9]
+first_event_intensity = 0.8         # 첫 영하·첫 폭염 신호 강도
+rain_pop_pct = 70                   # 날씨 참고: 1~2일 뒤 강수확률 기준(%)
+weather_note_days = [1, 2]
+# 날씨 참고(비·눈)를 붙이는 날씨 영향 업종 키워드
+weather_note_keywords = ["음식", "카페", "커피", "편의점", "세차", "주차", "예술·스포츠", "캠핑", "아이스크림"]
 
 [freshness]                   # RULE-TARGET-05 — 초기값 균등(2-prd.md 10장 미해결 이슈 9)
 weight_license = 0.3333       # ① 인허가 경과일 감쇠
@@ -57,6 +77,11 @@ forbidden_expressions = [
 product_terms = [
   "대출", "예금", "적금", "펀드", "보험", "금리", "한도", "이자율", "수익률",
   "통장", "카드", "여신", "융자", "보증", "투자", "상품", "가입", "우대", "혜택", "수수료",
+]
+# 예보 단정 표현 — 화법에서 차단한다. 예보는 "~로 예보되어"처럼만 말한다(docs/2-prd.md 4장).
+assertive_forecast_expressions = [
+  "추워집니다", "더워집니다", "추워질 것입니다", "더워질 것입니다", "추워질 예정입니다", "더워질 예정입니다",
+  "영하로 떨어집니다", "기온이 떨어집니다", "기온이 오릅니다", "비가 옵니다", "비가 내립니다", "눈이 옵니다", "눈이 내립니다",
 ]
 default_checklist = ["사업자등록증 확인", "현재 거래 은행 확인", "카드단말기 사용 현황 확인"]
 greeting_org_name = "NH농협은행"   # 화법 인사말의 기관명
@@ -153,6 +178,18 @@ url = "https://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnList"
 expected_lag_days = 0
 options = { max_fallback_age_days = 1 }
 
+[sources.KMA_FORECAST]        # 기상청 단기·중기예보 (S-4/S-5) — 강한 예보만 이벤트, 비·눈은 날씨 참고
+display_name = "기상청예보"
+url = "https://apis.data.go.kr/1360000"
+expected_lag_days = 0
+options = { short_path = "VilageFcstInfoService_2.0/getVilageFcst", mid_ta_path = "MidFcstInfoService/getMidTa", mid_land_path = "MidFcstInfoService/getMidLandFcst", short_base_time = "0200", short_num_rows = 1500, max_fallback_age_days = 1 }
+
+[sources.KMA_NOWCAST]         # 기상청 초단기실황 — 신호 미사용, 관측 기록 축적용 스냅샷
+display_name = "기상청실황"
+url = "https://apis.data.go.kr/1360000"
+expected_lag_days = 0
+options = { path = "VilageFcstInfoService_2.0/getUltraSrtNcst", max_fallback_age_days = 1 }
+
 [sources.ECOS_FX]             # 한국은행 ECOS 원/달러 매매기준율 (일)
 display_name = "한국은행ECOS"
 url = "https://ecos.bok.or.kr/api/StatisticSearch"
@@ -179,6 +216,13 @@ AREA_NEW_OPENINGS = { "*" = 0.5 }
 FX_DAILY_CHANGE = { "여행" = 1.0, "무역" = 1.0, "수입" = 1.0, "수출" = 1.0, "환전" = 1.0, "면세" = 1.0, "숙박" = 0.6 }
 OIL_PRICE_CHANGE = { "주유" = 1.0, "운송" = 1.0, "화물" = 1.0, "자동차" = 0.8, "택배" = 0.8, "정비" = 0.8 }
 WEATHER_WARNING = { "편의점" = 0.8, "약국" = 0.6, "카페" = 0.6, "음식" = 0.5, "세탁" = 0.5, "*" = 0.2 }
+# 기상청 예보 신호 — 키워드는 운영 DB 업종명(예: "소매·섬유·의복·신발 소매·여성 의류 소매업")에 맞췄다.
+# "*"(전 업종 기본값)는 두지 않는다: 0.1만 줘도 다른 신호가 없는 모든 사업장의 주 사유가 예보가 되어
+# (2026-10-13 dry-run에서 확인) 세무사·한식당에도 "기온 급변" 사유가 붙고 신호별 상한이 무력해진다.
+TEMP_SHIFT_FORECAST = { "의복" = 0.8, "의류" = 0.8, "난방" = 0.8, "보일러" = 0.8, "카페" = 0.6, "커피" = 0.6, "음료" = 0.6, "세탁" = 0.6, "약국" = 0.5 }
+SEASON_SHIFT_FORECAST = { "의복" = 1.0, "의류" = 1.0, "침구" = 0.8, "난방" = 1.0, "보일러" = 1.0, "냉방" = 0.8, "에어컨" = 0.8, "카페" = 0.5, "커피" = 0.5 }
+FIRST_FREEZE_FORECAST = { "난방" = 1.0, "보일러" = 1.0, "자동차 수리" = 0.8, "정비" = 0.8, "타이어" = 0.8, "의복" = 0.8, "의류" = 0.8, "편의점" = 0.5 }
+FIRST_HEAT_FORECAST = { "냉방" = 1.0, "에어컨" = 1.0, "아이스크림" = 1.0, "빙수" = 1.0, "얼음" = 1.0, "음료" = 1.0, "카페" = 0.8, "커피" = 0.8, "편의점" = 0.6, "가전제품" = 0.6 }
 
 # ─────────────────── 지역 코드 매핑 ───────────────────
 [kma_station_by_sido]         # 기상특보 발표 관서(stnId)
@@ -199,6 +243,44 @@ WEATHER_WARNING = { "편의점" = 0.8, "약국" = 0.6, "카페" = 0.6, "음식" 
 "울산" = 159
 "경남" = 159
 "제주" = 184
+
+[kma_mid_ta_region_by_sido]   # 중기기온예보 지역코드(시·도 대표 도시)
+"서울" = "11B10101"
+"인천" = "11B20201"
+"경기" = "11B20601"
+"강원" = "11D10301"
+"충북" = "11C10301"
+"대전" = "11C20401"
+"세종" = "11C20404"
+"충남" = "11C20101"
+"전북" = "11F10201"
+"광주" = "11F20501"
+"전남" = "21F20801"
+"대구" = "11H10701"
+"경북" = "11H10501"
+"부산" = "11H20201"
+"울산" = "11H20101"
+"경남" = "11H20301"
+"제주" = "11G00201"
+
+[kma_mid_land_region_by_sido] # 중기육상예보 지역코드(권역)
+"서울" = "11B00000"
+"인천" = "11B00000"
+"경기" = "11B00000"
+"강원" = "11D10000"
+"충북" = "11C10000"
+"대전" = "11C20000"
+"세종" = "11C20000"
+"충남" = "11C20000"
+"전북" = "11F10000"
+"광주" = "11F20000"
+"전남" = "11F20000"
+"대구" = "11H10000"
+"경북" = "11H10000"
+"부산" = "11H20000"
+"울산" = "11H20000"
+"경남" = "11H20000"
+"제주" = "11G00000"
 
 [opinet_sido_code]
 "서울" = "01"

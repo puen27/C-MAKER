@@ -55,6 +55,8 @@ class RankedRecommendation(BaseModel):
     candidate: ScoredCandidate
     rank: int
     is_exploration_slot: bool
+    # 브리프 '날씨 참고'(비·눈 예보) — 순위·근거·화법에는 쓰지 않는다. score_detail에 함께 저장한다.
+    weather_note: str | None = None
 
 
 # ───────────── API 응답 ─────────────

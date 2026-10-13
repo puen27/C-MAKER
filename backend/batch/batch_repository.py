@@ -496,6 +496,21 @@ def mark_event_merged(conn: psycopg.Connection, event_id: int, merged_on: date, 
     )
 
 
+def seasonal_signals_seen(
+    conn: psycopg.Connection, branch_id: int, season_starts: dict[str, date]
+) -> set[str]:
+    """시즌 시작일 이후 이 지점에 이미 승격(ACTIVE·TRIMMED 포함)된 '첫 영하/첫 폭염' 신호종류."""
+    seen: set[str] = set()
+    for signal_type, since in season_starts.items():
+        row = conn.execute(
+            "SELECT 1 FROM event WHERE branch_id = %s AND signal_type = %s AND occurred_on >= %s LIMIT 1",
+            (branch_id, signal_type, since),
+        ).fetchone()
+        if row is not None:
+            seen.add(signal_type)
+    return seen
+
+
 def load_scoring_events(conn: psycopg.Connection, branch_id: int, since: date, until: date) -> list[ActiveEvent]:
     """스코어링 입력: 최근 활동일(발생·병합)이 기간 안인 ACTIVE 이벤트와 그 최신 신호."""
     rows = conn.execute(
@@ -619,6 +634,8 @@ def insert_recommendation(
         "contributions": [item.model_dump() for item in candidate.contributions],
         "freshness": candidate.freshness_detail,
     }
+    if ranked.weather_note:
+        score_detail["weather_note"] = ranked.weather_note
     row = conn.execute(
         """
         INSERT INTO recommendation (branch_id, business_id, score, signal_score, freshness_score, proximity,

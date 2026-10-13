@@ -35,18 +35,24 @@ from backend.batch.briefing.llm_client import LlmClient, create_llm_client
 from backend.batch.connectors import (
     ecos_connector,
     kma_connector,
+    kma_forecast_connector,
     nts_connector,
     opinet_connector,
     permit_connector,
 )
 from backend.batch.connectors.http_client import FetchResult, SourceNotConfiguredError
+from backend.batch.normalizers import forecast_normalizer
 from backend.batch.normalizers import signal_normalizer as normalizer
 from backend.batch.normalizers.permit_parser import is_excluded_permit, parse_permit_row
 from backend.batch.population.business_loader import AreaIndex, apply_permit_records
 from backend.batch.sensing.event_promoter import decide_promotions
 from backend.batch.targeting.exclusion import ExclusionParams, apply_exclusions
-from backend.batch.targeting.exploration import assemble_recommendations, exploration_seed
-from backend.batch.targeting.scorer import WeightTable, score_candidates
+from backend.batch.targeting.exploration import (
+    apply_signal_share_cap,
+    assemble_recommendations,
+    exploration_seed,
+)
+from backend.batch.targeting.scorer import WeightTable, is_expired, score_candidates
 from backend.common.config import (
     KST,
     PIPELINE_CONFIG_PATH,
@@ -342,6 +348,28 @@ def collect_all_sources(
     else:
         outcomes["KMA_WARNING"] = SourceOutcome("KMA_WARNING", "SKIPPED", target_date, note="관할 관서 매핑 없음")
 
+    forecast_grids = sorted({grid for b in branches if (grid := forecast_normalizer.branch_grid(b)) is not None})
+    if forecast_grids:
+        forecast = sources["KMA_FORECAST"]
+        sidos = {extract_sido(b.address) or "" for b in branches}
+        mid_ta = [code for s in sidos if (code := config.kma_mid_ta_region_by_sido.get(s))]
+        mid_land = [code for s in sidos if (code := config.kma_mid_land_region_by_sido.get(s))]
+        outcomes["KMA_FORECAST"] = collect_source(
+            "KMA_FORECAST",
+            target_date,
+            config,
+            lambda: (
+                kma_forecast_connector.fetch_forecasts(
+                    settings.data_go_kr_service_key, forecast.url, options=forecast.options,
+                    grids=forecast_grids, mid_ta_regions=mid_ta, mid_land_regions=mid_land,
+                    target_date=target_date,
+                ),
+                target_date,
+            ),
+        )
+    else:
+        outcomes["KMA_FORECAST"] = SourceOutcome("KMA_FORECAST", "SKIPPED", target_date, note="좌표 보유 지점 없음")
+
     ecos = sources["ECOS_FX"]
 
     def fetch_ecos() -> tuple[FetchResult, date]:
@@ -521,6 +549,81 @@ def normalize_for_branch(
     return drafts, failed_source_names
 
 
+def normalize_forecast_for_branch(
+    branch: BranchContext,
+    outcomes: dict[str, SourceOutcome],
+    target_date: date,
+    config: PipelineConfig,
+    season_starts: dict[str, date],
+) -> tuple[list[SignalDraft], list[str]]:
+    """기상청 예보 신호. '첫 영하/첫 폭염'은 이 시즌에 이미 승격됐는지 DB로 확인한다. 실패는 소스 단위로 격리한다."""
+    forecast = outcomes.get("KMA_FORECAST")
+    if not forecast or not forecast.usable:
+        return [], []
+    try:
+        seen: set[str] = set()
+        if season_starts:
+            with get_connection() as conn:
+                seen = repo.seasonal_signals_seen(conn, branch.id, season_starts)
+        drafts = forecast_normalizer.normalize_forecast(
+            branch,
+            forecast.payload,
+            snapshot_id=forecast.snapshot_id,  # type: ignore[arg-type]
+            as_of_date=forecast.as_of_date,  # type: ignore[arg-type]
+            target_date=target_date,
+            config=config,
+            seen_this_season=seen,
+        )
+        return drafts, []
+    except Exception as exc:  # noqa: BLE001 — 소스별 정규화 실패 격리
+        log_fields(
+            logger,
+            logging.ERROR,
+            "소스 정규화 실패",
+            branch_code=branch.branch_code,
+            source="KMA_FORECAST",
+            error_class=_safe_error_name(exc),
+        )
+        return [], ["KMA_FORECAST"]
+
+
+def forecast_weather_note(
+    branch: BranchContext, outcomes: dict[str, SourceOutcome], target_date: date, config: PipelineConfig
+) -> str | None:
+    """브리프 '날씨 참고'(비·눈) 문장. 순위·근거·화법에는 쓰지 않는다. 실패해도 배치를 막지 않는다."""
+    forecast = outcomes.get("KMA_FORECAST")
+    if not forecast or not forecast.usable:
+        return None
+    try:
+        return forecast_normalizer.weather_note(branch, forecast.payload, target_date=target_date,
+                                                config=config.forecast)
+    except Exception as exc:  # noqa: BLE001 — 참고 문장 실패는 격리
+        log_fields(logger, logging.WARNING, "날씨 참고 생성 실패", branch_code=branch.branch_code,
+                   error_class=_safe_error_name(exc))
+        return None
+
+
+def collect_nowcast(branches: list[BranchContext], config: PipelineConfig) -> dict[str, Any]:
+    """초단기실황을 스냅샷으로만 쌓는다(신호 미사용). 소스 상태·지연 배너에는 포함하지 않는다."""
+    source = config.sources.get("KMA_NOWCAST")
+    grids = sorted({grid for b in branches if (grid := forecast_normalizer.branch_grid(b)) is not None})
+    if source is None or not grids:
+        return {"status": "SKIPPED"}
+    try:
+        result = kma_forecast_connector.fetch_nowcast(
+            get_settings().data_go_kr_service_key, source.url, path=str(source.options["path"]),
+            grids=grids, now=datetime.now(KST),
+        )
+        as_of = datetime.strptime(result.payload["base_date"], "%Y%m%d").date()
+        with get_connection() as conn:
+            snapshot_id = save_snapshot(conn, "KMA_NOWCAST", as_of, result.payload, result.request_params)
+        return {"status": "SAVED", "snapshot_id": snapshot_id, "grids": len(grids),
+                "base": result.request_params.get("base")}
+    except Exception as exc:  # noqa: BLE001 — 관측 축적 실패는 배치를 막지 않는다
+        log_fields(logger, logging.WARNING, "초단기실황 저장 실패", error_class=_safe_error_name(exc))
+        return {"status": "FAILED", "error": _safe_error_name(exc)}
+
+
 def persist_decisions(
     conn: psycopg.Connection,
     branch: BranchContext,
@@ -606,6 +709,7 @@ def target_branch(
     weights: WeightTable,
     config: PipelineConfig,
     run_id: int | None,
+    weather_note: str | None = None,
 ) -> TargetingResult:
     """읽기 트랜잭션에서 확정 순위와 브리프 계획만 만들고 DB publish는 하지 않는다."""
     result = TargetingResult()
@@ -634,7 +738,11 @@ def target_branch(
 
     # ② 스코어링
     lookback = config.scoring.event_lookback_days
-    events = repo.load_scoring_events(conn, branch.id, target_date - timedelta(days=lookback - 1), target_date)
+    loaded_events = repo.load_scoring_events(
+        conn, branch.id, target_date - timedelta(days=lookback - 1), target_date
+    )
+    # 예보 이벤트는 예보 대상일(valid_until)이 지나면 사유로 쓰지 않는다.
+    events = [event for event in loaded_events if not is_expired(event, target_date)]
     scored = score_candidates(
         branch,
         passed,
@@ -647,6 +755,14 @@ def target_branch(
 
     # ③ TOP 20 (그중 3건 탐색 슬롯 — Phase 2 전까지 비활성)
     rec_config = config.recommendation
+    # 신호별 명부 상한 — 상권·거시 신호 한 종류가 명부를 채우지 않게 한다(밀려난 건수는 통계에만 남긴다).
+    share_cap = thresholds.get("SIGNAL_SHARE_CAP_PCT")
+    scored, share_cap_pushed = apply_signal_share_cap(
+        scored,
+        top_n=rec_config.top_n,
+        cap_pct=share_cap.threshold_value if share_cap else None,
+        capped_types=rec_config.signal_share_capped_types,
+    )
     ranked = assemble_recommendations(
         scored,
         top_n=rec_config.top_n,
@@ -660,8 +776,13 @@ def target_branch(
 
     candidates_by_id = {candidate.id: candidate for candidate in passed}
     events_by_id = {event.event_id: event for event in events}
-    for item in ranked:
+    weather_notes = 0
+    for index, item in enumerate(ranked):
         candidate = candidates_by_id[item.candidate.business_id]
+        if weather_note and forecast_normalizer.needs_weather_note(candidate.industry_name, config.forecast):
+            item = item.model_copy(update={"weather_note": weather_note})
+            ranked[index] = item
+            weather_notes += 1
         reason_facts = build_reason_facts(
             candidate, item.candidate, events_by_id, config, reference_date=target_date
         )
@@ -691,8 +812,21 @@ def target_branch(
         "scoring_events": len(events),
         "recommendations": len(ranked),
         "exploration_slots": sum(1 for item in ranked if item.is_exploration_slot),
+        "expired_forecast_events": len(loaded_events) - len(events),
+        "share_cap_pushed": share_cap_pushed,
+        "dominant_signals": _count_dominant(ranked),
+        "weather_notes": weather_notes,
     }
     return result
+
+
+def _count_dominant(ranked: list[RankedRecommendation]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in ranked:
+        contributions = item.candidate.contributions
+        key = contributions[0].signal_type if contributions else "FRESHNESS_ONLY"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 # ─────────────────────────── 브리프 ───────────────────────────
@@ -745,10 +879,13 @@ def process_branch_targeting(
     config: PipelineConfig,
     run_id: int | None,
     llm: LlmClient | None,
+    weather_note: str | None = None,
 ) -> tuple[TargetingResult, list[BriefContent]]:
     """읽기 계획 → 무트랜잭션 LLM → 짧은 추천·브리프 원자 publish를 수행한다."""
     with get_connection() as plan_conn:
-        targeting = target_branch(plan_conn, branch, target_date, thresholds, weights, config, run_id)
+        targeting = target_branch(
+            plan_conn, branch, target_date, thresholds, weights, config, run_id, weather_note
+        )
     if targeting.stats.get("skipped") == "ALREADY_TAGGED":
         return targeting, []
 
@@ -920,9 +1057,20 @@ def run_pipeline(
     briefing_status_counts: dict[str, int] = {}
     generated_briefs = 0
     briefing_elapsed_s = 0.0
+    stats["nowcast"] = collect_nowcast(branches, config)
+    season_starts = {
+        signal_type: start
+        for signal_type in ("FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST")
+        if (start := forecast_normalizer.season_start(signal_type, target_date, config.forecast)) is not None
+    }
     for branch in branches:
         try:
             drafts, normalization_failures = normalize_for_branch(branch, outcomes, openings, config)
+            forecast_drafts, forecast_failures = normalize_forecast_for_branch(
+                branch, outcomes, target_date, config, season_starts
+            )
+            drafts = [*drafts, *forecast_drafts]
+            normalization_failures = [*normalization_failures, *forecast_failures]
             if normalization_failures:
                 failed.add(branch.branch_code)
                 for source_name in set(normalization_failures):
@@ -938,7 +1086,8 @@ def run_pipeline(
             briefing_started = time.monotonic()
             try:
                 targeting, briefs = process_branch_targeting(
-                    branch, target_date, thresholds, weights, config, run_id, llm
+                    branch, target_date, thresholds, weights, config, run_id, llm,
+                    forecast_weather_note(branch, outcomes, target_date, config),
                 )
             finally:
                 briefing_elapsed_s += time.monotonic() - briefing_started

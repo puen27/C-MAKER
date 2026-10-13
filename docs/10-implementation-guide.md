@@ -658,7 +658,7 @@ npm run build    # dist/ 생성
 07:30 이전 완료 (P95 SLA)
 ```
 
-- 폴백 최대 나이는 `PERMIT_DAILY=3일`, `NTS_STATUS=1일`, `KMA_WARNING=1일`, `ECOS_FX=7일`, `OPINET_PRICE=2일`이다. 새 수집이 성공한 `FRESH`도 기대 기준일보다 오래되면 `delay_days`로 지연을 노출한다.
+- 폴백 최대 나이는 `PERMIT_DAILY=3일`, `NTS_STATUS=1일`, `KMA_WARNING=1일`, `KMA_FORECAST=1일`, `ECOS_FX=7일`, `OPINET_PRICE=2일`이다(`KMA_NOWCAST`는 소스 상태에 넣지 않는 관측 축적 스냅샷). 2026-10-13 예보 신호 추가 시 운영 DB에는 `backend/database/patches/2026-10-13_forecast_signals.sql`을 적용한다. 새 수집이 성공한 `FRESH`도 기대 기준일보다 오래되면 `delay_days`로 지연을 노출한다.
 - PERMIT/NTS 후처리는 각각 격리한다. 실패한 소스는 `UNAVAILABLE`로 낮추고 다른 처리를 계속한다. normalizer도 소스별로 격리하지만 실패 소스는 `DEGRADED`, 해당 지점은 실패로 기록되어 최종 배치는 `FAILED`가 된다.
 - 반복 이벤트의 cooldown은 최초 `occurred_on`이 아니라 `last_merged_on`을 포함한 최근 병합 활동일을 기준으로 계산한다.
 - 브리프 생성 또는 추천·브리프 1:1 검증이 최종 실패하면 publish transaction을 rollback해 기존 당일 명부를 보존한다.

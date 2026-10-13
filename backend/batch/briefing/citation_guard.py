@@ -199,6 +199,17 @@ def validate_script(
             errors.append(f"금칙 표현 차단(RULE-BRIEF-03): {forbidden}")
             continue
         compact_sentence = _compact(sentence)
+        assertive = next(
+            (
+                expression
+                for expression in config.assertive_forecast_expressions
+                if _compact(expression) and _compact(expression) in compact_sentence
+            ),
+            None,
+        )
+        if assertive:
+            errors.append(f"예보 단정 표현 차단: {assertive}")
+            continue
         product = next(
             (
                 term

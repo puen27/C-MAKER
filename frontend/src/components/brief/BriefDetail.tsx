@@ -116,6 +116,16 @@ export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailPro
             )}
           </section>
 
+          {brief.weatherNote && (
+            <section className="brief-detail__card brief-detail__weather" aria-labelledby="brief-weather">
+              <h2 id="brief-weather" className="brief-detail__sec-title">
+                날씨 참고
+              </h2>
+              <p className="brief-detail__sec-sub">선정 사유가 아닌 참고 정보입니다. 방문 일정을 정할 때 참고하세요.</p>
+              <p className="brief-detail__weather-text">{brief.weatherNote}</p>
+            </section>
+          )}
+
           {brief.checklist.length > 0 && (
             <section className="brief-detail__card" aria-labelledby="brief-checklist">
               <h2 id="brief-checklist" className="brief-detail__sec-title">

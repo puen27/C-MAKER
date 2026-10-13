@@ -81,6 +81,7 @@ def get_brief_detail(conn: psycopg.Connection, recommendation_id: int) -> dict[s
         SELECT r.id, r.branch_id, r.recommended_on, r.distance_km::float8 AS distance_km,
                b.name AS business_name, b.industry_name, b.address,
                br.reason_summary, br.reason_facts, br.talk_script, br.checklist, br.generation_status,
+               r.score_detail->>'weather_note' AS weather_note,
                t.tag_value, t.reject_reason
         FROM recommendation r
         JOIN business b ON b.id = r.business_id

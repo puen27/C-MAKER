@@ -32,4 +32,6 @@ export interface Brief {
   generationStatus: BriefGenerationStatus;
   tagStatus: TagStatus;
   rejectedReason?: RejectedReason | null;
+  /** 비·눈 예보 참고 문장 — 선정 사유가 아니며 순위·화법에 쓰이지 않는다. 해당 없으면 null */
+  weatherNote?: string | null;
 }

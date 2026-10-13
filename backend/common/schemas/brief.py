@@ -66,3 +66,5 @@ class BriefResponse(ApiModel):
     generation_status: GenerationStatus
     tag_status: TagStatus
     rejected_reason: RejectedReason | None = None
+    # 비·눈 예보 참고(순위·근거와 무관). 해당 없으면 null
+    weather_note: str | None = None

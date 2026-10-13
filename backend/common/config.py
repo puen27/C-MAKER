@@ -117,6 +117,7 @@ class RecommendationConfig(BaseModel):
     # CLAUDE.md §9: 탐색 슬롯 가동은 Phase 2. MVP는 구조만 두고 기본 비활성.
     exploration_enabled: bool = False
     min_sample_for_update: int = 30
+    signal_share_capped_types: list[str] = Field(default_factory=list)
 
 
 class ScoringConfig(BaseModel):
@@ -137,6 +138,22 @@ class NormalizationConfig(BaseModel):
     new_opening_max_age_days: int = 90
 
 
+class ForecastConfig(BaseModel):
+    """기상청 예보 신호 판정 고정값. 승격 임계치(°C)는 THRESHOLD_CONFIG에 있다."""
+
+    shift_days: list[int] = Field(default_factory=lambda: [1, 2])
+    temp_shift_saturation_c: float = 10.0
+    season_shift_saturation_c: float = 8.0
+    freeze_tmin_c: float = 0.0
+    heat_tmax_c: float = 33.0
+    freeze_season_start_month: int = 9
+    heat_season_months: list[int] = Field(default_factory=lambda: [5, 6, 7, 8, 9])
+    first_event_intensity: float = 0.8
+    rain_pop_pct: int = 70
+    weather_note_days: list[int] = Field(default_factory=lambda: [1, 2])
+    weather_note_keywords: list[str] = Field(default_factory=list)
+
+
 class FreshnessConfig(BaseModel):
     weight_license: float = 1 / 3
     weight_no_contact: float = 1 / 3
@@ -155,6 +172,8 @@ class ExclusionConfig(BaseModel):
 class BriefingConfig(BaseModel):
     max_script_sentences: int = 3
     forbidden_expressions: list[str] = Field(default_factory=list)
+    # 예보를 사실처럼 단정하는 화법 표현 — 화법 문장에서만 차단한다(근거 문장은 "예보되었습니다"로 쓴다)
+    assertive_forecast_expressions: list[str] = Field(default_factory=list)
     product_terms: list[str] = Field(default_factory=list)
     default_checklist: list[str] = Field(default_factory=list)
     greeting_org_name: str = "NH농협은행"
@@ -174,12 +193,15 @@ class PipelineConfig(BaseModel):
     recommendation: RecommendationConfig
     scoring: ScoringConfig
     normalization: NormalizationConfig
+    forecast: ForecastConfig = Field(default_factory=ForecastConfig)
     freshness: FreshnessConfig
     exclusion: ExclusionConfig
     briefing: BriefingConfig
     sources: dict[str, SourceConfig]
     industry_signal_fit: dict[str, dict[str, float]]
     kma_station_by_sido: dict[str, int]
+    kma_mid_ta_region_by_sido: dict[str, str] = Field(default_factory=dict)
+    kma_mid_land_region_by_sido: dict[str, str] = Field(default_factory=dict)
     opinet_sido_code: dict[str, str]
 
     def source_display_name(self, source_name: str) -> str:

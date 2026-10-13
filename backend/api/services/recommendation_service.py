@@ -100,6 +100,7 @@ def get_brief(conn: psycopg.Connection, user: CurrentUser, recommendation_id: in
         generation_status=row["generation_status"] or "REASON_ONLY",
         tag_status=row["tag_value"] or "UNTAGGED",
         rejected_reason=row["reject_reason"],
+        weather_note=row.get("weather_note"),
     )
 
 

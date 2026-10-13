@@ -18,7 +18,7 @@ from backend.batch.briefing.llm_client import LlmClient, LlmUnavailableError
 from backend.common.config import BriefingConfig
 from backend.common.schemas.brief import BriefContent, BriefInput
 
-PROMPT_VERSION = "brief-v4"
+PROMPT_VERSION = "brief-v5"
 
 # call_reason/call_purpose가 비어 있을 때(구 입력·테스트)의 기본값
 _FALLBACK_CALL_REASON = "저희 지점 담당 상권에서 영업 중이신 사업장께 인사드리고자"
@@ -38,6 +38,7 @@ SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화�
 5. script 배열의 각 원소는 정확히 한 문장이어야 한다. 한 원소에 여러 문장을 합치지 마라.
 6. '문을 여신'처럼 '여신'이 들어가는 존댓말은 상품 용어로 오인되어 차단되므로 '개업하신', '여셨다'로 쓴다.
 7. 수치는 facts에 적힌 그대로(부호 포함) 쓴다.
+7-1. facts가 기상청 예보이면 화법에서도 "예보되어", "예보가 있어"처럼 예보임을 밝힌다. "추워집니다", "비가 옵니다"처럼 단정하지 마라.
 8. 1문장은 "안녕하세요 사장님, {org_name} {branch_name}에서 … 연락드렸습니다."처럼 한 문장으로 잇는다. "~입니다," 처럼 종결어미 뒤에 쉼표를 붙여 문장을 이어 쓰지 마라.
 9. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
 

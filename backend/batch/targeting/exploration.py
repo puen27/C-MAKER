@@ -44,6 +44,52 @@ def select_exploration_slots(
     return [candidate for _draw, _id, candidate in draws[:n_slots]]
 
 
+def dominant_signal_type(candidate: ScoredCandidate) -> str | None:
+    """주 사유 신호(기여도 1위). 브리프 첫 근거 문장도 같은 신호에서 나온다."""
+    return candidate.contributions[0].signal_type if candidate.contributions else None
+
+
+def apply_signal_share_cap(
+    scored: list[ScoredCandidate],
+    *,
+    top_n: int,
+    cap_pct: float | None,
+    capped_types: list[str],
+) -> tuple[list[ScoredCandidate], dict[str, int]]:
+    """신호별 명부 상한 — 주 사유가 상권·거시 신호인 후보는 종류당 top_n×cap_pct%까지만 앞에 싣는다.
+
+    점수순을 유지한 채 상한을 넘는 후보를 뒤로 미룬다. 다른 후보로 top_n을 못 채우면 미룬 후보로 채운다.
+    반환: (재정렬된 후보 목록, 신호종류별 밀려난 건수)
+    """
+    if not cap_pct or cap_pct <= 0 or not capped_types:
+        return scored, {}
+    limit = max(1, int(top_n * cap_pct / 100))
+    capped = set(capped_types)
+    counts: dict[str, int] = {}
+    chosen: list[ScoredCandidate] = []
+    deferred: list[ScoredCandidate] = []
+    for item in scored:
+        if len(chosen) >= top_n:
+            break
+        signal_type = dominant_signal_type(item)
+        if signal_type in capped:
+            if counts.get(signal_type, 0) >= limit:
+                deferred.append(item)
+                continue
+            counts[signal_type] = counts.get(signal_type, 0) + 1
+        chosen.append(item)
+    refill = deferred[: max(0, top_n - len(chosen))]
+    head = chosen + refill
+    head_ids = {item.business_id for item in head}
+    # 밀려난 건수 = 상한이 없었다면 top_n 안에 들었을 후보 중 빠진 것
+    pushed: dict[str, int] = {}
+    for item in scored[:top_n]:
+        if item.business_id not in head_ids:
+            signal_type = dominant_signal_type(item) or ""
+            pushed[signal_type] = pushed.get(signal_type, 0) + 1
+    return head + [item for item in scored if item.business_id not in head_ids], pushed
+
+
 def assemble_recommendations(
     scored: list[ScoredCandidate],
     *,

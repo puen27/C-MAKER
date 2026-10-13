@@ -53,6 +53,17 @@ class WeightTable:
         return self._min_sample
 
 
+def is_expired(event: ActiveEvent, target_date: date) -> bool:
+    """예보 이벤트는 detail.valid_until(예보 대상일)이 지나면 사유로 쓰지 않는다(docs/2-prd.md 4장)."""
+    valid_until = (event.detail or {}).get("valid_until")
+    if not valid_until:
+        return False
+    try:
+        return date.fromisoformat(str(valid_until)) < target_date
+    except ValueError:
+        return False
+
+
 def applicability(event: ActiveEvent, candidate: BusinessCandidate, config: PipelineConfig) -> float:
     if event.scope == "BUSINESS":
         return 1.0 if event.business_id == candidate.id else 0.0
