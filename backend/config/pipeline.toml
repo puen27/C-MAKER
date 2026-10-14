@@ -26,6 +26,9 @@ industry_fit_match = 1.2      # 규모적합도: 지점 주력업종(primary_ind
 industry_fit_default = 1.0
 default_weight = 1.0          # SIGNAL_WEIGHT 행이 없을 때의 w₀
 event_lookback_days = 7       # 스코어링에 반영하는 활성 이벤트의 최근 신호 기준 기간(일)
+# 같은 대상(target_key)에 더 새로운 기준일의 신호가 들어오면(임계치 미달이어도) 그 이벤트는 사유로 쓰지 않는다.
+# '전일 대비 변동'·'특보 발효'처럼 그날 값이 의미인 신호 — 오래된 변동률을 '최근' 사유로 인용하지 않기 위함.
+superseded_signal_types = ["FX_DAILY_CHANGE", "OIL_PRICE_CHANGE", "WEATHER_WARNING"]
 
 [normalization]               # 신호 강도 sᵢ(0~1) 정규화 포화점 — 임계치(THRESHOLD_CONFIG)와 독립
 area_openings_saturation = 10       # 반경 내 신규 개업 10건/일 이상이면 1.0
@@ -61,6 +64,10 @@ no_contact_saturation_days = 30
 # 인허가 적재 단계에서 제외하는 공공기관 업태·상호 키워드(api/11-api-spec.md §1.9).
 # 업태구분명에 포함되거나 사업장명이 이 키워드로 끝나면 BUSINESS에 넣지 않는다(개업 신호도 만들지 않음).
 excluded_permit_keywords = ["보건소", "보건지소", "보건진료소", "보건의료원"]
+# 명부 배제(RULE-TARGET-01 INVALID_NAME): 연락할 상호가 없는 사업장. 적재는 그대로 하고 명부에서만 뺀다.
+# 10/14 검증: 상가정보에 '업소명없음' 15건, 업종명이 상호로 들어간 '경영컨설팅업' 20건
+invalid_business_name_prefixes = ["업소명없음"]
+exclude_industry_named_business = true
 
 [exclusion.reject_exclusion_days]   # RULE-TARGET-01 부적합 사유별 배제 기간(일), 0 = 영구
 ALREADY_CUSTOMER = 0          # 이미 거래중 — 영구

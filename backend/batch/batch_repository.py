@@ -531,6 +531,24 @@ def load_scoring_events(conn: psycopg.Connection, branch_id: int, since: date, u
     return [ActiveEvent.model_validate(row) for row in rows]
 
 
+def load_latest_signal_dates(
+    conn: psycopg.Connection, branch_id: int, signal_types: list[str], until: date
+) -> dict[tuple[str, str], date]:
+    """(신호종류, 대상 키)별 최신 신호 기준일. 이벤트에 연결되지 않은(임계치 미달) 신호도 포함한다."""
+    if not signal_types:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT signal_type, target_key, max(as_of_date) AS latest_on
+        FROM signal
+        WHERE branch_id = %s AND signal_type = ANY(%s) AND as_of_date <= %s
+        GROUP BY signal_type, target_key
+        """,
+        (branch_id, signal_types, until),
+    ).fetchall()
+    return {(row["signal_type"], row["target_key"]): row["latest_on"] for row in rows}
+
+
 # ─────────────────────────── 명부 (targeting) ───────────────────────────
 
 

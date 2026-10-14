@@ -128,6 +128,9 @@ class ScoringConfig(BaseModel):
     industry_fit_default: float = 1.0
     default_weight: float = 1.0
     event_lookback_days: int = 7
+    # 같은 대상의 더 새로운 신호(임계치 미달 포함)가 들어오면 이벤트를 사유로 쓰지 않는 신호종류.
+    # 전일 대비 변동·발효 여부처럼 '그날 값'이 의미인 거시 신호에 쓴다(10/14 검증: 10/8 환율 이벤트가 7일간 인용됨).
+    superseded_signal_types: list[str] = Field(default_factory=list)
 
 
 class NormalizationConfig(BaseModel):
@@ -169,6 +172,10 @@ class ExclusionConfig(BaseModel):
     reject_exclusion_days: dict[str, int] = Field(default_factory=dict)
     # 인허가 적재 제외 키워드(업태구분명 포함 / 사업장명 접미). 공공 보건기관 등 영업 대상이 아닌 곳.
     excluded_permit_keywords: list[str] = Field(default_factory=list)
+    # 명부에서 빼는 상호 — 공백을 지운 상호가 이 값으로 시작하면 제외한다(상가정보의 '업소명없음' 등).
+    invalid_business_name_prefixes: list[str] = Field(default_factory=list)
+    # 상호가 업종명(대·중·소분류 중 하나)과 같으면 실제 상호가 아니므로 제외한다(예: '경영컨설팅업').
+    exclude_industry_named_business: bool = False
 
 
 class BriefingConfig(BaseModel):

@@ -64,6 +64,21 @@ def is_expired(event: ActiveEvent, target_date: date) -> bool:
         return False
 
 
+def is_superseded(
+    event: ActiveEvent,
+    latest_signal_on: dict[tuple[str, str], date],
+    signal_types: set[str] | frozenset[str],
+) -> bool:
+    """같은 대상에 이벤트 근거 신호보다 새로운 기준일의 신호가 있으면 그 이벤트는 지난 값이다.
+
+    임계치 미달 신호는 이벤트에 연결되지 않으므로, 이 검사가 없으면 며칠 전 변동률이 반영 기간 내내 인용된다.
+    """
+    if event.signal_type not in signal_types:
+        return False
+    latest = latest_signal_on.get((event.signal_type, event.target_key))
+    return latest is not None and latest > event.as_of_date
+
+
 def applicability(event: ActiveEvent, candidate: BusinessCandidate, config: PipelineConfig) -> float:
     if event.scope == "BUSINESS":
         return 1.0 if event.business_id == candidate.id else 0.0

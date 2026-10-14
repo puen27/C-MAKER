@@ -65,6 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_branch_history_branch ON branch_history(branch_id
 
 -- CONST-19: INSERT/UPDATE 시 effective_from을 "다음 날 07:30(KST)"으로 설정하고,
 -- UPDATE로 추적 대상 값이 바뀌면 변경 전 값을 branch_history로 옮긴다.
+-- 변경 전 값이 아직 효력 전이면(같은 날 등록·재수정, OLD.effective_from >= 다음 효력 시각) 한 번도 유효한 적이
+-- 없는 값이므로 이력을 남기지 않는다. 남기면 valid_from = valid_until인 0길이 구간이 된다(10/14 검증: 11건 전부).
 --
 -- SET search_path (함수 정의 하단): 함수 본문의 미수식 테이블명(branch_history)이 항상 cmaker로
 -- 해석되도록 고정한다. 이 지정이 없으면 호출 세션의 search_path를 따르므로, 운영자가 psql에서
@@ -86,12 +88,14 @@ BEGIN
        IS DISTINCT FROM
        (OLD.name, OLD.address, OLD.lat, OLD.lng, OLD.coverage_radius_km,
         OLD.primary_industry_tags, OLD.handles_forex, OLD.atm_count) THEN
-        INSERT INTO branch_history (branch_id, name, address, lat, lng, coverage_radius_km,
-                                    primary_industry_tags, handles_forex, atm_count,
-                                    valid_from, valid_until)
-        VALUES (OLD.id, OLD.name, OLD.address, OLD.lat, OLD.lng, OLD.coverage_radius_km,
-                OLD.primary_industry_tags, OLD.handles_forex, OLD.atm_count,
-                OLD.effective_from, next_effective);
+        IF OLD.effective_from < next_effective THEN
+            INSERT INTO branch_history (branch_id, name, address, lat, lng, coverage_radius_km,
+                                        primary_industry_tags, handles_forex, atm_count,
+                                        valid_from, valid_until)
+            VALUES (OLD.id, OLD.name, OLD.address, OLD.lat, OLD.lng, OLD.coverage_radius_km,
+                    OLD.primary_industry_tags, OLD.handles_forex, OLD.atm_count,
+                    OLD.effective_from, next_effective);
+        END IF;
         NEW.effective_from := next_effective;
         NEW.updated_at := now();
     ELSE

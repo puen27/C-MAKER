@@ -527,6 +527,21 @@ def test_cooldown_sql_uses_latest_activity_for_select_filter_and_sort():
     assert "ORDER BY GREATEST" in conn.sql
 
 
+def test_latest_signal_dates_include_unlinked_signals():
+    latest = date(2026, 10, 13)
+    conn = _QueryConnection([{"signal_type": "FX_DAILY_CHANGE", "target_key": "MACRO:FX", "latest_on": latest}])
+
+    result = batch_repository.load_latest_signal_dates(  # type: ignore[arg-type]
+        conn, 4, ["FX_DAILY_CHANGE"], date(2026, 10, 14)
+    )
+
+    assert result == {("FX_DAILY_CHANGE", "MACRO:FX"): latest}
+    # 임계치 미달 신호(event_id NULL)도 세어야 하므로 event_id 조건이 없어야 한다
+    assert "event_id" not in conn.sql
+    assert conn.params == (4, ["FX_DAILY_CHANGE"], date(2026, 10, 14))
+    assert batch_repository.load_latest_signal_dates(conn, 4, [], TODAY) == {}  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
     ("run_type", "finished_at", "applicable", "met", "missed_by_seconds"),
     [

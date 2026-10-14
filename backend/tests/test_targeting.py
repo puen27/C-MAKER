@@ -13,6 +13,7 @@ from backend.batch.targeting.reason_tier import area_reason_ratio, classify_reas
 from backend.batch.targeting.scorer import (
     WeightTable,
     freshness_terms,
+    is_superseded,
     proximity_factor,
     score_candidate,
     score_candidates,
@@ -76,7 +77,48 @@ def test_apply_exclusions_counts_and_keeps_order():
     history = [tag(3, "REJECTED", TODAY, "UNREACHABLE"), tag(4, "VISITED", TODAY)]
     passed, counts = apply_exclusions(candidates, history, TODAY, PARAMS)
     assert [c.id for c in passed] == [1]
-    assert counts == {"OPERATING_STATUS": 1, "CONTACT_COOLDOWN": 1, "REJECTED": 0, "OPT_OUT": 1}
+    assert counts == {"OPERATING_STATUS": 1, "INVALID_NAME": 0, "CONTACT_COOLDOWN": 1, "REJECTED": 0, "OPT_OUT": 1}
+
+
+NAME_PARAMS = ExclusionParams(
+    contact_cooldown_days=30, invalid_name_prefixes=("업소명없음",), exclude_industry_named=True
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "industry_name"),
+    [
+        ("업소명없음", "음식·한식"),
+        ("업소명 없음 구로점", "음식·한식"),       # 상가정보 상호는 '상호 지점명'
+        ("경영컨설팅업", "과학·기술·전문 서비스·경영 컨설팅업"),  # 업종명이 상호로 들어간 행
+        ("   ", "음식·한식"),
+    ],
+)
+def test_business_without_real_name_is_excluded(name, industry_name):
+    item = candidate(1, name=name, industry_name=industry_name)
+    assert exclusion_reason(item, [], TODAY, NAME_PARAMS) == "INVALID_NAME"
+
+
+@pytest.mark.parametrize("name", ["붐", "2002", "한식당 구로점", "경영컨설팅 그룹"])
+def test_short_or_descriptive_real_names_are_kept(name):
+    item = candidate(1, name=name, industry_name="과학·기술·전문 서비스·경영 컨설팅업")
+    assert exclusion_reason(item, [], TODAY, NAME_PARAMS) is None
+
+
+def test_name_filter_is_off_without_config():
+    item = candidate(1, name="업소명없음")
+    assert exclusion_reason(item, [], TODAY, PARAMS) is None
+
+
+def test_operating_status_precedes_invalid_name():
+    item = candidate(1, name="업소명없음", operating_status="폐업")
+    assert exclusion_reason(item, [], TODAY, NAME_PARAMS) == "OPERATING_STATUS"
+
+
+def test_pipeline_config_enables_name_filter():
+    exclusion = get_pipeline_config().exclusion
+    assert "업소명없음" in exclusion.invalid_business_name_prefixes
+    assert exclusion.exclude_industry_named_business is True
 
 
 # ─────────────── 스코어링 ───────────────
@@ -87,6 +129,37 @@ TABLE = WeightTable(
             ("NEW_BUSINESS_OPENING", "I201", 1.9, 10)),
     default_weight=1.0, min_sample=30,
 )
+
+
+MACRO = frozenset({"FX_DAILY_CHANGE", "OIL_PRICE_CHANGE", "WEATHER_WARNING"})
+
+
+def _fx_event(as_of: date):
+    return active_event(9, signal_type="FX_DAILY_CHANGE", scope="INDUSTRY", target_key="MACRO:FX",
+                        source_name="ECOS_FX", as_of_date=as_of, detail={"rate": 1343.4, "change_pct": -1.11})
+
+
+def test_macro_event_is_superseded_by_newer_below_threshold_signal():
+    # 10/14 검증 사례: 10/7 기준 -1.11% 이벤트가 있는데 10/13 기준 신호(+0.16%, 임계치 미달)가 들어왔다
+    event = _fx_event(date(2026, 10, 7))
+    latest = {("FX_DAILY_CHANGE", "MACRO:FX"): date(2026, 10, 13)}
+    assert is_superseded(event, latest, MACRO)
+
+
+def test_macro_event_stays_while_no_newer_data():
+    # 주말·휴일처럼 새 기준일 데이터가 없으면 그 이벤트가 여전히 최신 값이다
+    event = _fx_event(date(2026, 10, 8))
+    assert not is_superseded(event, {("FX_DAILY_CHANGE", "MACRO:FX"): date(2026, 10, 8)}, MACRO)
+    assert not is_superseded(event, {}, MACRO)
+
+
+def test_non_macro_event_is_never_superseded():
+    event = active_event(1)  # AREA_NEW_OPENINGS — 며칠 전 개업 건수도 '최근' 사실로 유효
+    assert not is_superseded(event, {("AREA_NEW_OPENINGS", "AREA"): TODAY + timedelta(days=3)}, MACRO)
+
+
+def test_superseded_types_are_configured():
+    assert set(CONFIG.scoring.superseded_signal_types) == MACRO
 
 
 def test_weight_inherits_global_when_sample_below_30():

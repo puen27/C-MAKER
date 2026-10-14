@@ -52,7 +52,7 @@ from backend.batch.targeting.exploration import (
     assemble_recommendations,
     exploration_seed,
 )
-from backend.batch.targeting.scorer import WeightTable, is_expired, score_candidates
+from backend.batch.targeting.scorer import WeightTable, is_expired, is_superseded, score_candidates
 from backend.common.config import (
     KST,
     PIPELINE_CONFIG_PATH,
@@ -733,6 +733,8 @@ def target_branch(
     params = ExclusionParams(
         contact_cooldown_days=int(thresholds["CONTACT_COOLDOWN_DAYS"].threshold_value),
         reject_exclusion_days=config.exclusion.reject_exclusion_days,
+        invalid_name_prefixes=tuple(config.exclusion.invalid_business_name_prefixes),
+        exclude_industry_named=config.exclusion.exclude_industry_named_business,
     )
     passed, excluded = apply_exclusions(candidates, repo.load_tag_history(conn, ids), target_date, params)
 
@@ -742,7 +744,11 @@ def target_branch(
         conn, branch.id, target_date - timedelta(days=lookback - 1), target_date
     )
     # 예보 이벤트는 예보 대상일(valid_until)이 지나면 사유로 쓰지 않는다.
-    events = [event for event in loaded_events if not is_expired(event, target_date)]
+    unexpired = [event for event in loaded_events if not is_expired(event, target_date)]
+    # 거시 신호는 같은 대상의 더 새로운 신호(임계치 미달 포함)가 있으면 지난 값이므로 쓰지 않는다.
+    superseded_types = frozenset(config.scoring.superseded_signal_types)
+    latest_signal_on = repo.load_latest_signal_dates(conn, branch.id, sorted(superseded_types), target_date)
+    events = [event for event in unexpired if not is_superseded(event, latest_signal_on, superseded_types)]
     scored = score_candidates(
         branch,
         passed,
@@ -815,7 +821,8 @@ def target_branch(
         "scoring_events": len(events),
         "recommendations": len(ranked),
         "exploration_slots": sum(1 for item in ranked if item.is_exploration_slot),
-        "expired_forecast_events": len(loaded_events) - len(events),
+        "expired_forecast_events": len(loaded_events) - len(unexpired),
+        "superseded_events": len(unexpired) - len(events),
         "share_cap_pushed": share_cap_pushed,
         "dominant_signals": _count_dominant(ranked),
         "weather_notes": weather_notes,
