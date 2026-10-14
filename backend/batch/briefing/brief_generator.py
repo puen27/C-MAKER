@@ -14,33 +14,36 @@ import re
 import time
 
 from backend.batch.briefing.citation_guard import validate_facts, validate_script
+from backend.batch.briefing.fact_builder import _industry_leaf
 from backend.batch.briefing.llm_client import LlmClient, LlmUnavailableError
 from backend.common.config import BriefingConfig
 from backend.common.schemas.brief import BriefContent, BriefInput
 
-PROMPT_VERSION = "brief-v5"
+PROMPT_VERSION = "brief-v6"
 
-# call_reason/call_purpose가 비어 있을 때(구 입력·테스트)의 기본값
-_FALLBACK_CALL_REASON = "저희 지점 담당 상권에서 영업 중이신 사업장께 인사드리고자"
-_FALLBACK_CALL_PURPOSE = "가까운 지점에서 사업장 운영에 필요하신 금융 업무를 편하게 보실 수 있도록 도와드리고자"
-_CALL_ASK = "편하신 시간에 담당 직원이 잠시 찾아뵙고 현재 거래 상황과 필요하신 부분을 여쭤봐도 괜찮을까요?"
+# call_reason/call_purpose가 비어 있을 때(구 입력·테스트)의 기본값 — 전화 말투(10/14 테스트 결과 10번)
+# 차단 단어(카드·통장·상품·가입·혜택 등 product_terms)는 넣지 않는다.
+_FALLBACK_CALL_REASON = "가까운 곳에서 영업하고 계셔서 인사드리려고"
+_FALLBACK_CALL_PURPOSE = "필요하신 금융 업무를 가까운 지점에서 편하게 보실 수 있게 도와드리려고"
+_CALL_ASK = "편하신 시간 알려주시면 제가 잠깐 찾아뵙고 인사드려도 될까요?"
 
-SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장에 처음 전화할 때 읽을 화법 초안을 쓰는 도우미다.
-화법은 사장님이 '왜 전화했는지, 나에게 무슨 도움이 되는지'를 바로 알 수 있게 아래 3문장 구조로 쓴다.
-  1문장(인사·연락 사유): org_name·branch_name을 밝히고 business_name 사장님께, call_reason과 facts의 핵심 변화로 왜 지금 연락했는지 말한다.
-  2문장(연락 목적): call_purpose를 바탕으로 사장님 사업장 입장에서 지점이 무엇을 도와드리려는지 구체적으로 말한다.
-  3문장(다음 행동 요청): 방문 또는 짧은 상담 일정을 정중하게 여쭙는다.
+SYSTEM_PROMPT = """너는 은행 영업점 직원이 사업장 사장님께 처음 전화할 때 읽을 화법 초안을 쓰는 도우미다.
+사장님이 '왜 전화했는지, 나에게 무슨 도움이 되는지'를 바로 알 수 있게, 전화로 말하듯 자연스럽게 3문장으로 쓴다.
+  1문장(인사·연락 사유): org_name·branch_name을 밝히고 call_reason으로 왜 지금 연락했는지 말한다.
+  2문장(연락 목적): call_purpose를 바탕으로 지점이 무엇을 도와드리려는지 사장님 입장에서 말한다.
+  3문장(다음 행동 요청): 편하신 시간에 직원이 찾아뵙겠다고 정중하게 여쭙는다. 지점으로 오시라고 하지 않는다.
 규칙:
-1. facts·call_reason·call_purpose에 있는 내용만 언급할 수 있다. 그 밖의 사실·수치·날짜·혜택을 만들지 마라.
+1. facts·call_reason·call_purpose에 있는 내용만 말한다. 그 밖의 사실·수치·날짜·혜택을 만들지 마라.
 2. 금융상품 이름이나 대출·금리·한도·수익·수수료를 안내하거나 권유하지 마라. '확정 수익', '원금 보장' 같은 표현을 쓰지 마라.
 3. 개인에 대한 정보를 추측하거나 언급하지 마라.
-4. 존댓말로 최대 3문장. 출처 태그나 대괄호는 쓰지 마라.
-5. script 배열의 각 원소는 정확히 한 문장이어야 한다. 한 원소에 여러 문장을 합치지 마라.
+4. 존댓말로 정확히 3문장. 한 문장은 50자 안팎으로 짧게 쓰고 '~하고자' 같은 문어체를 피한다. 출처 태그나 대괄호는 쓰지 마라.
+5. script 배열의 각 원소는 정확히 한 문장이어야 한다.
 6. '문을 여신'처럼 '여신'이 들어가는 존댓말은 상품 용어로 오인되어 차단되므로 '개업하신', '여셨다'로 쓴다.
-7. 수치는 facts에 적힌 그대로(부호 포함) 쓴다.
-7-1. facts가 기상청 예보이면 화법에서도 "예보되어", "예보가 있어"처럼 예보임을 밝힌다. "추워집니다", "비가 옵니다"처럼 단정하지 마라.
-8. 1문장은 "안녕하세요 사장님, {org_name} {branch_name}에서 … 연락드렸습니다."처럼 한 문장으로 잇는다. "~입니다," 처럼 종결어미 뒤에 쉼표를 붙여 문장을 이어 쓰지 마라.
-9. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
+7. 연도·날짜·거리·건수·반경 같은 숫자는 쓰지 마라. 예외: 환율·유가 변동률과 그 기준일(예: 10월 7일)은 facts에 적힌 그대로 한 번 쓸 수 있다.
+8. '인허가', '확인', '조회', '반경', '데이터'처럼 정보를 찾아본 티가 나는 말을 쓰지 마라. 주변 경쟁 매장 이야기도 하지 마라.
+9. facts가 기상청 예보이면 "예보가 있어"처럼 예보임을 밝힌다. 단정하지 마라.
+10. 1문장은 "안녕하세요 사장님, {org_name} {branch_name}에서 … 연락드렸습니다."처럼 한 문장으로 잇는다. "~입니다," 처럼 종결어미 뒤에 쉼표를 붙여 문장을 이어 쓰지 마라.
+11. 출력은 JSON 한 개만: {"script": ["문장1", "문장2", "문장3"]}"""
 
 
 
@@ -63,15 +66,19 @@ def _call_purpose(brief_input: BriefInput) -> str:
 
 
 def build_user_prompt(brief_input: BriefInput, config: BriefingConfig) -> str:
+    """LLM 입력 — 핵심 근거(첫 번째 사실) 1개와 업종 마지막 단계만 넘긴다(10/14 테스트 결과 10-3).
+
+    근거를 여러 개 주면 거리·건수·인허가일 같은 숫자를 화법에 끌어 쓴다. 검증(validate_script)은 전체 facts로 한다.
+    """
     return json.dumps(
         {
             "org_name": config.greeting_org_name,
             "branch_name": brief_input.branch_name,
             "business_name": brief_input.business_name,
-            "industry": brief_input.industry_name,
+            "industry": _industry_leaf(brief_input.industry_name),
             "call_reason": _call_reason(brief_input),
             "call_purpose": _call_purpose(brief_input),
-            "facts": [fact.text for fact in brief_input.facts],
+            "facts": [fact.text for fact in brief_input.facts[:1]],
         },
         ensure_ascii=False,
     )

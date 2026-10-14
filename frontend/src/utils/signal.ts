@@ -19,7 +19,7 @@ export const SIGNAL_LABEL: Record<string, string> = {
 
 /** 기여 신호 없이(근접도·미접촉 기간 등으로만) 선정된 추천을 묶는 키 */
 export const NO_SIGNAL_KEY = 'NO_SIGNAL';
-const NO_SIGNAL_LABEL = '기본 조건';
+const NO_SIGNAL_LABEL = '가까운 거리';
 const UNKNOWN_SIGNAL_LABEL = '기타 신호';
 
 export function signalKeyOf(rec: Recommendation): string {

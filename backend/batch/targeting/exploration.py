@@ -58,19 +58,27 @@ def apply_signal_share_cap(
     capped_types: list[str],
     address_of: dict[int, str | None] | None = None,
     same_address_cap: int | None = None,
+    name_of: dict[int, str | None] | None = None,
 ) -> tuple[list[ScoredCandidate], dict[str, int]]:
-    """명부 다양성 상한 — 신호별 상한과 같은 건물(같은 도로명주소) 상한을 함께 건다.
+    """명부 다양성 상한 — 같은 가게 중복 제거, 신호별 상한, 같은 건물(같은 도로명주소) 상한을 함께 건다.
 
+    - 같은 가게: 건물 키(building_key)와 상호(공백 제거·소문자)가 같으면 점수가 가장 높은 한 곳만 남긴다.
+      인허가·상가정보에 같은 가게가 따로 올라 두 행으로 실리는 경우다. address_of·name_of가 모두 있어야 켜진다.
     - 신호별: 주 사유가 상권·거시 신호인 후보는 종류당 top_n×cap_pct%까지만 앞에 싣는다.
       다른 후보로 top_n을 못 채우면 미룬 후보로 채운다.
     - 같은 건물: 주소가 같은 후보는 same_address_cap곳까지만 싣는다. 넘친 후보는 명부에서 빼고
       다음 순위로 채우며, 후보가 모자라면 top_n 미만이 된다.
-    점수순은 유지한다. 반환: (재정렬된 후보 목록, 사유별 밀려난 건수 — 같은 건물은 SAME_ADDRESS)
+    점수순은 유지한다. 반환: (재정렬된 후보 목록, 사유별 밀려난 건수 — 같은 건물은 SAME_ADDRESS, 중복은 DUPLICATE)
     """
+    duplicates = _duplicate_ids(scored, address_of or {}, name_of or {}) if address_of and name_of else set()
+    original = scored
+    if duplicates:
+        scored = [item for item in scored if item.business_id not in duplicates]
     signal_cap_on = bool(cap_pct and cap_pct > 0 and capped_types)
     address_cap_on = bool(same_address_cap and same_address_cap > 0 and address_of)
     if not signal_cap_on and not address_cap_on:
-        return scored, {}
+        pushed_dup = sum(1 for item in original[:top_n] if item.business_id in duplicates)
+        return scored, ({"DUPLICATE": pushed_dup} if pushed_dup else {})
     limit = max(1, int(top_n * cap_pct / 100)) if signal_cap_on and cap_pct else 0
     capped = set(capped_types) if signal_cap_on else set()
     addresses = address_of or {}
@@ -119,9 +127,14 @@ def apply_signal_share_cap(
     head_ids = {item.business_id for item in head}
     # 밀려난 건수 = 상한이 없었다면 top_n 안에 들었을 후보 중 빠진 것
     pushed: dict[str, int] = {}
-    for item in scored[:top_n]:
+    for item in original[:top_n]:
         if item.business_id not in head_ids:
-            reason = "SAME_ADDRESS" if item.business_id in address_blocked else (dominant_signal_type(item) or "")
+            if item.business_id in duplicates:
+                reason = "DUPLICATE"
+            elif item.business_id in address_blocked:
+                reason = "SAME_ADDRESS"
+            else:
+                reason = dominant_signal_type(item) or ""
             pushed[reason] = pushed.get(reason, 0) + 1
     # 같은 건물 상한에 걸린 후보는 뒤에도 남기지 않는다(탐색 슬롯 등 뒤 단계가 다시 넣지 않도록).
     # 뒤 목록도 누적으로 센다 — 같은 건물 후보 여러 곳이 뒤에 함께 남지 않게 한다.
@@ -139,6 +152,34 @@ def apply_signal_share_cap(
 
 _PAREN = re.compile(r"\([^)]*\)")
 _SPACES = re.compile(r"\s+")
+
+
+def _store_key(address: str | None, name: str | None) -> tuple[str, str] | None:
+    """같은 가게 판정 키 — (건물 키, 공백 제거·소문자 상호). 주소나 상호가 없으면 None(중복 판정 안 함)."""
+    building = building_key(address)
+    store = _SPACES.sub("", name or "").lower()
+    if building is None or not store:
+        return None
+    return building, store
+
+
+def _duplicate_ids(
+    scored: list[ScoredCandidate],
+    address_of: dict[int, str | None],
+    name_of: dict[int, str | None],
+) -> set[int]:
+    """점수순 목록에서 같은 가게의 두 번째 이후 후보 ID. 첫 번째(점수가 가장 높은 곳)만 남긴다."""
+    seen: set[tuple[str, str]] = set()
+    duplicates: set[int] = set()
+    for item in scored:
+        key = _store_key(address_of.get(item.business_id), name_of.get(item.business_id))
+        if key is None:
+            continue
+        if key in seen:
+            duplicates.add(item.business_id)
+        else:
+            seen.add(key)
+    return duplicates
 
 
 def building_key(address: str | None) -> str | None:

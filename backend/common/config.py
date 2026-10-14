@@ -216,11 +216,14 @@ class PipelineConfig(BaseModel):
     kma_mid_ta_region_by_sido: dict[str, str] = Field(default_factory=dict)
     kma_mid_land_region_by_sido: dict[str, str] = Field(default_factory=dict)
     opinet_sido_code: dict[str, str]
-    # 대표 신호(signal_type) → 추천상품 매핑. 키가 없는 신호는 추천상품을 표시하지 않는다.
+    # 대표 신호(signal_type) → 추천상품 매핑. 신호가 없거나 표에 없으면 "DEFAULT" 항목을 쓴다.
     product_mapping: dict[str, ProductMappingEntry] = Field(default_factory=dict)
 
     def products_for(self, signal_type: str | None) -> ProductMappingEntry | None:
-        return self.product_mapping.get(signal_type) if signal_type else None
+        """신호가 없거나(가까운 거리로 선정) 매핑에 없으면 DEFAULT. DEFAULT도 없으면 None."""
+        if signal_type and signal_type in self.product_mapping:
+            return self.product_mapping[signal_type]
+        return self.product_mapping.get("DEFAULT")
 
     def source_display_name(self, source_name: str) -> str:
         source = self.sources.get(source_name)

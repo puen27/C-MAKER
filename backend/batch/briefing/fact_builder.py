@@ -24,9 +24,9 @@ from backend.common.schemas.recommendation import ScoredCandidate
 # 모집단 사실 문장의 출처 — BUSINESS.status_source → 스냅샷 소스명
 _POPULATION_SOURCE = {"PERMIT": "PERMIT_FULL", "SBIZ": "SBIZ_STORE", "NTS": "NTS_STATUS"}
 
-# 신호가 없을 때(신선도 항만으로 선정)의 연락 사유·목적
-_DEFAULT_CALL_REASON = "저희 지점 담당 상권에서 영업 중이신 사업장께 인사드리고자"
-_DEFAULT_CALL_PURPOSE = "가까운 지점에서 사업장 운영에 필요하신 금융 업무를 편하게 보실 수 있도록 도와드리고자"
+# 신호가 없을 때(신선도 항만으로 선정)의 연락 사유·목적 — 전화 말투(brief_generator 기본값과 같은 문구)
+_DEFAULT_CALL_REASON = "가까운 곳에서 영업하고 계셔서 인사드리려고"
+_DEFAULT_CALL_PURPOSE = "필요하신 금융 업무를 가까운 지점에서 편하게 보실 수 있게 도와드리려고"
 
 
 @dataclass(frozen=True)
@@ -92,13 +92,16 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 "첫 거래 관계를 만들기 좋은 시기입니다."
             ),
             summary=f"{summary_head} — 첫 거래를 만들 적기",
-            # '문을 여신'은 상품 용어 '여신'으로 차단되므로 '개업하신'으로 쓴다
-            call_reason="최근 새로 개업하신 것을 확인하고 개업 인사차",
-            call_purpose="개업 초기에 필요하신 매출 정산 계좌 개설이나 사업 운영 자금 준비를 지점에서 직접 도와드리고자",
+            # 화법 문구는 전화 말투로 — 숫자·건수·'확인'·'반경'을 넣지 않는다(10/14 테스트 결과 10번).
+            # '문을 여신'은 상품 용어 '여신'으로 차단되므로 '개업하셔서'·'여셨을'로 쓴다
+            call_reason="새로 개업하셔서 축하 인사드리려고",
+            call_purpose="가게 막 여셨을 때 필요하신 매출 정산 계좌나 운영 자금 준비를 가까운 지점에서 도와드리려고",
         )
     if kind == "INDUSTRY_NEW_OPENINGS":
         count = int(_num(detail, "count", event.raw_value))
-        industry = detail.get("industry_name") or event.industry_name or "동일 업종"
+        industry = (
+            _industry_leaf(detail.get("industry_name") or event.industry_name) or "동일 업종"
+        )
         radius = _num(detail, "radius_km")
         return _Built(
             text=(
@@ -111,8 +114,8 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 f"{_radius_text(radius)}같은 업종 {count}곳 신규 개업 ({_mmdd(event.as_of_date)} 기준) "
                 "— 매출·운영 자금 점검 수요"
             ),
-            call_reason=f"최근 주변에 같은 업종 매장이 {count}곳 새로 문을 열어 상권 변화를 말씀드리고자",
-            call_purpose="경쟁이 늘어나는 시기에 매출 관리나 운영 자금 흐름에서 불편하신 점이 없는지 여쭙고 도와드리고자",
+            call_reason="요즘 이 근처 상권이 바뀌고 있어서 장사는 괜찮으신지 안부 여쭤보려고",
+            call_purpose="매출 관리나 운영 자금 쪽에 불편하신 점이 없는지 여쭤보고 도와드리려고",
         )
     if kind == "AREA_NEW_OPENINGS":
         count = int(_num(detail, "count", event.raw_value))
@@ -127,34 +130,34 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 f"{_radius_text(radius)}신규 개업 {count}건 ({_mmdd(event.as_of_date)} 기준) "
                 "— 상권 변화, 운영 준비 점검"
             ),
-            call_reason=f"최근 주변 상권에 새로 문을 연 사업장이 {count}곳 늘어 지역 상권 소식을 전해 드리고자",
-            call_purpose="상권이 바뀌는 시기에 사업장 운영에 필요하신 금융 업무를 지점에서 먼저 챙겨드리고자",
+            call_reason="요즘 이 근처에 새 가게들이 많이 생기고 있어서 안부 여쭤보려고",
+            call_purpose="가게 운영하시면서 필요한 금융 업무를 가까운 지점에서 먼저 챙겨드리려고",
         )
     if kind == "FX_DAILY_CHANGE":
         rate = _num(detail, "rate")
         change = _num(detail, "change_pct")
         return _Built(
             text=(
-                f"원/달러 환율이 {rate:,.2f}원으로 전일 대비 {change:+.2f}% 변동했습니다. "
+                f"{_md(event.as_of_date)} 원/달러 환율이 {rate:,.2f}원으로 전일 대비 {change:+.2f}% 변동했습니다. "
                 "수입 원가나 해외 결제·송금 비용이 달라질 수 있는 업종이라, "
                 "환전·송금 시점 관리에 대한 상담 수요가 생길 수 있습니다."
             ),
             summary=f"원/달러 {change:+.2f}% ({_mmdd(event.as_of_date)} 기준) — 해외 결제·송금 비용 부담 점검",
-            call_reason="최근 원/달러 환율 변동이 커져 해외 거래가 있는 사업장에 상황을 여쭙고자",
-            call_purpose="수입 대금 결제나 해외 송금, 환전 시점 관리에서 부담되시는 부분을 확인하고 도와드리고자",
+            call_reason=f"{_md(event.as_of_date)} 원/달러 환율이 크게 움직여서 해외 결제나 송금은 괜찮으신지 여쭤보려고",
+            call_purpose="해외 송금이나 환전 시점 관리에서 부담되시는 부분을 도와드리려고",
         )
     if kind == "OIL_PRICE_CHANGE":
         sido = detail.get("sido") or "지역"
         change = _num(detail, "change_pct")
         return _Built(
             text=(
-                f"{sido} 평균 휘발유 가격이 전일 대비 {change:+.2f}% 변동했습니다. "
+                f"{_md(event.as_of_date)} {sido} 평균 휘발유 가격이 전일 대비 {change:+.2f}% 변동했습니다. "
                 "연료비 비중이 큰 업종이라 운영비와 자금 흐름에 바로 영향을 받을 수 있어, "
                 "자금 운용 상황을 함께 점검해 볼 시점입니다."
             ),
             summary=f"{sido} 휘발유 {change:+.2f}% ({_mmdd(event.as_of_date)} 기준) — 연료비·운영 자금 부담 변화",
-            call_reason="최근 지역 유가가 움직여 연료비 부담이 달라지셨을 것 같아",
-            call_purpose="운영비 변화에 따른 자금 흐름 관리에서 필요하신 부분을 미리 여쭙고 도와드리고자",
+            call_reason=f"{_md(event.as_of_date)} 기름값이 움직여서 연료비 부담은 괜찮으신지 여쭤보려고",
+            call_purpose="운영비가 바뀔 때 자금 흐름 관리에서 필요하신 부분을 도와드리려고",
         )
     if kind in _FORECAST_KINDS:
         return _forecast_fact(kind, detail)
@@ -163,7 +166,7 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
         sido = detail.get("sido") or "지점 소재지"
         return _Built(
             text=(
-                f"{sido} 관할에 {warning}가 발효되었습니다. "
+                f"{_md(event.as_of_date)} {sido} 관할에 {warning}가 발효되었습니다. "
                 "날씨 영향을 받는 업종이라 영업 차질이나 일시적인 매출 변동이 생길 수 있어, "
                 "안부 연락으로 관계를 만들기 좋은 시점입니다."
             ),
@@ -171,8 +174,8 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 f"{detail.get('sido') + ' ' if detail.get('sido') else ''}{warning} 발효 "
                 f"({_mmdd(event.as_of_date)} 기준) — 영업 차질 우려, 안부 연락 적기"
             ),
-            call_reason=f"{warning}가 발효되어 영업에 지장은 없으신지 안부를 여쭙고자",
-            call_purpose="날씨 때문에 매출이 흔들릴 때 필요하실 수 있는 자금 운용 지원을 지점에서 안내해 드리고자",
+            call_reason=f"{warning}가 내려져서 영업에 지장은 없으신지 안부 여쭤보려고",
+            call_purpose="날씨 때문에 매출이 흔들릴 때 필요하실 수 있는 자금 운용을 지점에서 도와드리려고",
         )
     return None
 
@@ -181,7 +184,7 @@ _FORECAST_KINDS = frozenset(
     {"TEMP_SHIFT_FORECAST", "SEASON_SHIFT_FORECAST", "FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST"}
 )
 # 예보 사유의 화법 목적 — 상품·여신 용어 없이 운영 준비를 돕는다는 수준으로만 말한다.
-_FORECAST_CALL_PURPOSE = "계절이 바뀌는 시기에 필요하신 운영 자금 흐름이나 결제 관련 업무를 지점에서 미리 챙겨드리고자"
+_FORECAST_CALL_PURPOSE = "날씨가 바뀌는 시기에 필요하신 운영 자금이나 결제 업무를 미리 챙겨드리려고"
 
 
 def _mmdd(value: Any) -> str:
@@ -228,7 +231,7 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 "미리 안부를 여쭙기 좋은 시점입니다."
             ),
             summary=f"{_date_prefix(detail.get('forecast_date'))}기온 {abs(diff):g}°C {word} 예보 — 계절 준비 수요 점검",
-            call_reason=f"기온이 크게 {'내려갈' if diff < 0 else '올라갈'} 것으로 예보되어 영업 준비에 불편은 없으신지 여쭙고자",
+            call_reason=f"기온이 크게 {'내려갈' if diff < 0 else '올라갈'} 것으로 예보되어 영업 준비에 불편은 없으신지 여쭤보려고",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
     if kind == "SEASON_SHIFT_FORECAST":
@@ -247,7 +250,7 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 f"{_date_prefix(detail.get('far_start'))}계절 전환 예보"
                 f"(평균 최저 {abs(diff):g}°C {'하락' if diff < 0 else '상승'}) — 계절 운영 준비 시기"
             ),
-            call_reason=f"날씨가 {word} 시기로 접어든다는 예보가 있어 계절 준비 상황을 여쭙고자",
+            call_reason=f"날씨가 {word} 시기로 접어든다는 예보가 있어 계절 준비는 괜찮으신지 여쭤보려고",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
     if kind == "FIRST_FREEZE_FORECAST":
@@ -264,7 +267,7 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 f"{_date_prefix(detail.get('forecast_date'))}{season_word} 첫 영하 예보"
                 f"({_deg(detail.get('value'))}) — 겨울철 운영 준비 시기"
             ),
-            call_reason=f"{season_word} 첫 영하 날씨가 예보되어 겨울철 준비에 불편은 없으신지 여쭙고자",
+            call_reason=f"{season_word} 첫 영하 날씨가 예보되어 겨울철 준비에 불편은 없으신지 여쭤보려고",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
     # FIRST_HEAT_FORECAST
@@ -279,19 +282,19 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
             f"{_date_prefix(detail.get('forecast_date'))}올해 첫 폭염 예보"
             f"({_deg(detail.get('value'))}) — 여름철 운영 준비 시기"
         ),
-        call_reason="올해 첫 폭염 수준의 더위가 예보되어 여름철 준비에 불편은 없으신지 여쭙고자",
+        call_reason="올해 첫 폭염 수준의 더위가 예보되어 여름철 준비에 불편은 없으신지 여쭤보려고",
         call_purpose=_FORECAST_CALL_PURPOSE,
     )
 
 
 def _population_fact(candidate: BusinessCandidate) -> tuple[str, str]:
-    industry = candidate.industry_name or "업종 미상"
+    # 업종은 마지막 단계만 — 화면 표시와 같은 규칙(10/14 테스트 결과 4번)
+    leaf = _industry_leaf(candidate.industry_name)
     text = (
-        f"지점에서 약 {candidate.distance_km:.1f}km 거리에서 영업 중인 {industry} 사업장으로, "
+        f"지점에서 약 {candidate.distance_km:.1f}km 거리에서 영업 중인 {leaf or '업종 미상'} 사업장으로, "
         "직접 방문 상담이 쉬운 담당 상권 안에 있습니다."
     )
     # 명부 1줄 요약 — 신호 없이 선정된 행이 같은 문장으로 줄줄이 반복되지 않게 거리·업종(마지막 단계)을 넣는다.
-    leaf = _industry_leaf(candidate.industry_name)
     subject = f"{leaf} 영업 중" if leaf else "영업 중 사업장"
     return text, f"지점에서 약 {candidate.distance_km:.1f}km, {subject} — 방문 상담이 쉬운 거리"
 
@@ -305,9 +308,19 @@ def _with_place(summary: str, candidate: BusinessCandidate) -> str:
 
 
 def _industry_leaf(industry: str | None) -> str:
-    """'시설관리·임대·여행사·보조·여행사' → '여행사' (화면 표시와 같은 규칙)"""
+    """'시설관리·임대·여행사·보조·여행사' → '여행사' (화면 표시 frontend utils/industry.ts와 같은 규칙)
+
+    마지막 단계가 '백화점'이면 앞 단계와 합친다: '…·휴게음식점·백화점' → '휴게음식점(백화점 내)'
+    """
     parts = [part.strip() for part in (industry or "").split("·") if part.strip()]
-    return parts[-1] if parts else ""
+    if not parts:
+        return ""
+    if parts[-1] in _IN_STORE_LEAVES and len(parts) >= 2:
+        return f"{parts[-2]}({parts[-1]} 내)"
+    return parts[-1]
+
+
+_IN_STORE_LEAVES = frozenset({"백화점"})
 
 
 def _license_age_fact(licensed_on: date, as_of: date) -> tuple[str, str]:

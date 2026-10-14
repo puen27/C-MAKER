@@ -175,3 +175,32 @@ def test_reason_facts_all_have_source_tags():
     assert warning.summary == "서울 폭염주의보 발효 (09.29 기준) · 한식 0.5km — 영업 차질 우려, 안부 연락 적기"
     kept, errors = validate_facts([f.fact for f in facts], BRIEFING)
     assert len(kept) == len(facts) and not errors
+
+
+def test_macro_fact_sentences_start_with_as_of_date():
+    """10/14 테스트 결과 6번: 환율·유가·기상특보 근거 문장 앞에 기준일을 넣는다."""
+    from datetime import date
+
+    from backend.batch.briefing.fact_builder import _event_fact
+
+    samples = {
+        "FX_DAILY_CHANGE": {"rate": 1343.4, "change_pct": -1.11},
+        "OIL_PRICE_CHANGE": {"sido": "서울", "change_pct": 0.8},
+        "WEATHER_WARNING": {"warning": "호우주의보", "sido": "서울"},
+    }
+    for signal_type, detail in samples.items():
+        event = active_event(1, signal_type=signal_type, detail=detail)
+        built = _event_fact(event)
+        assert built is not None
+        as_of: date = event.as_of_date
+        assert built.text.startswith(f"{as_of.month}월 {as_of.day}일 "), (signal_type, built.text)
+
+
+def test_industry_leaf_merges_department_store():
+    """10/14 테스트 결과 8번: 마지막 단계가 '백화점'이면 '휴게음식점(백화점 내)'."""
+    from backend.batch.briefing.fact_builder import _industry_leaf
+
+    assert _industry_leaf("음식·휴게음식점·백화점") == "휴게음식점(백화점 내)"
+    assert _industry_leaf("시설관리·임대·여행사·보조·여행사") == "여행사"
+    assert _industry_leaf("백화점") == "백화점"
+    assert _industry_leaf(None) == ""

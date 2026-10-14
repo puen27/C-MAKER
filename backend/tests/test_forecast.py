@@ -331,3 +331,41 @@ def test_same_address_cap_ignores_missing_address_and_combines_with_signal_cap()
     head = ordered[:20]
     assert sum(1 for item in head if item.contributions) == 6
     assert pushed == {"FX_DAILY_CHANGE": 4}
+
+
+# ─────────────────────────── 같은 가게 중복 제거 (10/14 테스트 결과 3번) ───────────────────────────
+
+
+def test_duplicate_store_keeps_only_highest_score():
+    # 성당지점 '스위트호텔'(성당로 161)이 4·5위에 두 번 나온 사례
+    scored = [_scored(i, 100 - i, "NEW_BUSINESS_OPENING", "BUSINESS") for i in range(1, 26)]
+    address_of: dict[int, str | None] = {i: f"대구광역시 남구 앞산순환로 {i}" for i in range(1, 26)}
+    name_of: dict[int, str | None] = {i: f"가게{i}" for i in range(1, 26)}
+    address_of[4] = "대구광역시 달서구 성당로 161"
+    address_of[5] = "대구광역시 달서구 성당로 161, 1층 (성당동)"
+    name_of[4] = "스위트호텔"
+    name_of[5] = "스위트 호텔"
+    ordered, pushed = apply_signal_share_cap(
+        scored, top_n=20, cap_pct=30, capped_types=CAPPED,
+        address_of=address_of, same_address_cap=2, name_of=name_of,
+    )
+    head = [item.business_id for item in ordered[:20]]
+    assert 4 in head and 5 not in head
+    assert 5 not in {item.business_id for item in ordered}
+    assert head == [1, 2, 3, 4] + list(range(6, 22))
+    assert pushed == {"DUPLICATE": 1}
+
+
+def test_duplicate_removal_works_without_other_caps_and_ignores_missing_name():
+    scored = [_scored(i, 100 - i, None) for i in range(1, 6)]
+    address_of: dict[int, str | None] = {i: "서울특별시 중구 을지로 100" for i in range(1, 6)}
+    name_of: dict[int, str | None] = {1: "카페A", 2: "카페a", 3: None, 4: "", 5: "카페B"}
+    ordered, pushed = apply_signal_share_cap(
+        scored, top_n=20, cap_pct=None, capped_types=[], address_of=address_of, name_of=name_of,
+    )
+    assert [item.business_id for item in ordered] == [1, 3, 4, 5]
+    assert pushed == {"DUPLICATE": 1}
+
+
+def test_area_new_openings_is_signal_share_capped():
+    assert "AREA_NEW_OPENINGS" in CAPPED

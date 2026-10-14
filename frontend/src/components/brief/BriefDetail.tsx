@@ -27,6 +27,7 @@ interface BriefDetailProps {
 // 통화 안내 고정 문구 — AI 화법과 구분해 규칙으로 붙인다(금융소비자보호법 안내, 10/13 수정 요청 ③).
 // 상품명은 AI 화법에 넣지 않는다(상품 용어 차단 규칙). 문구 확정 전 준법감시 확인 필요.
 const CALL_END_NOTICE = '연락을 원하지 않으시면 말씀해 주세요. 다시 연락드리지 않겠습니다.';
+const SOURCE_QUESTION_NOTICE = '공개된 공공데이터(영업 인허가·상가 정보 등)를 보고 연락드렸다고 말씀드립니다.';
 const OPT_OUT_NOTICE =
   "연락을 원하지 않는 고객은 '부적합 → 접촉 불가'로 기록하면 명부에서 영구 제외됩니다. 방문은 오전 8시~오후 9시에만 합니다.";
 
@@ -216,6 +217,10 @@ export function BriefDetail({ brief, canTag, onTag, tagPending, staffName, branc
                 <div>
                   <dt>통화 시작 전</dt>
                   <dd>{callStartNotice}</dd>
+                </div>
+                <div>
+                  <dt>출처를 물으면</dt>
+                  <dd>{SOURCE_QUESTION_NOTICE}</dd>
                 </div>
                 <div>
                   <dt>통화 마칠 때</dt>

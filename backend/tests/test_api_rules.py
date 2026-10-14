@@ -77,7 +77,23 @@ def test_crm_row_follows_crm_register_columns_and_product_mapping():
     assert row["crm_products"] == "수신, 전자금융, 카드"
     assert row["content"] == "[NH Campaigner] 10월 8일 인허가, 개업 6일째 — 첫 거래를 만들 적기 [지방행정인허가·2026-10-12]"
     long_row = _crm_row({"reason_summary": "가" * 2000, "signal_type": None})
-    assert len(long_row["content"]) == 1000 and long_row["detail_type"] == "" and long_row["crm_products"] == ""
+    assert len(long_row["content"]) == 1000
+
+
+def test_products_for_falls_back_to_default_for_no_signal_rows():
+    """10/14 테스트 결과 9번: 가까운 거리(신호 없음) 행도 CRM 상세유형·추진상품이 비지 않는다."""
+    from backend.api.services.recommendation_service import _crm_row
+    from backend.common.config import get_pipeline_config
+
+    config = get_pipeline_config()
+    for signal_type in (None, "", "UNKNOWN_SIGNAL"):
+        mapping = config.products_for(signal_type)
+        assert mapping is not None
+        assert (mapping.detail_type, mapping.crm_products, mapping.brief_products) == (
+            "수신추진", ["수신"], ["사업잘되는NH통장"])
+    assert config.products_for("FX_DAILY_CHANGE").detail_type == "외환추진"
+    row = _crm_row({"reason_summary": "지점에서 약 0.3km", "signal_type": None})
+    assert (row["detail_type"], row["crm_products"]) == ("수신추진", "수신")
 
 
 def test_unauthenticated_request_uses_common_error_format(monkeypatch):

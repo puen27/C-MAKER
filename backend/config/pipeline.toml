@@ -12,6 +12,7 @@ min_sample_for_update = 30    # RULE-LEARN-03 / CONST-09
 # 신호별 명부 상한(비율은 THRESHOLD_CONFIG.SIGNAL_SHARE_CAP_PCT): 주 사유가 아래 상권·거시 신호인 추천은
 # 한 종류당 지점 TOP N의 상한 비율까지만 싣고, 넘치는 자리는 다음 순위 후보로 채운다. 사업장 단위 신호는 제외.
 signal_share_capped_types = [
+  "AREA_NEW_OPENINGS",          # 10/14: 주변 상권 개업이 본점 명부 10곳을 채워 상한 대상에 넣음
   "FX_DAILY_CHANGE", "OIL_PRICE_CHANGE", "WEATHER_WARNING",
   "TEMP_SHIFT_FORECAST", "SEASON_SHIFT_FORECAST", "FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST",
 ]
@@ -212,6 +213,12 @@ url = "https://api.vworld.kr/req/address"
 # ─────────────────── 대표 신호 → 추천상품 매핑 ───────────────────
 # 브리프 '추천상품' 줄과 CRM 등록 파일(상세유형·추진상품)이 이 표 하나를 쓴다(10/13 수정 요청 ③).
 # 규칙으로 붙이는 표시 정보다. AI 화법(talk_script)에는 넣지 않는다 — product_terms 차단 대상이다.
+# DEFAULT: 대표 신호가 없거나(가까운 거리로 선정) 아래 표에 없는 신호일 때 쓴다(CRM 상세유형·추진상품이 비지 않게).
+[product_mapping.DEFAULT]
+detail_type = "수신추진"
+crm_products = ["수신"]
+brief_products = ["사업잘되는NH통장"]
+
 [product_mapping.NEW_BUSINESS_OPENING]
 detail_type = "수신추진"
 crm_products = ["수신", "전자금융", "카드"]
@@ -269,7 +276,7 @@ brief_products = ["NH온택트보증서대출"]
 NEW_BUSINESS_OPENING = { "*" = 1.0 }
 INDUSTRY_NEW_OPENINGS = { "*" = 0.7 }
 AREA_NEW_OPENINGS = { "*" = 0.5 }
-FX_DAILY_CHANGE = { "여행" = 1.0, "무역" = 1.0, "수입" = 1.0, "수출" = 1.0, "환전" = 1.0, "면세" = 1.0, "숙박" = 0.6 }
+FX_DAILY_CHANGE = { "여행" = 1.0, "무역" = 1.0, "수입" = 1.0, "수출" = 1.0, "환전" = 1.0, "면세" = 1.0 }   # 숙박업 제외(10/14 팀 결정)
 OIL_PRICE_CHANGE = { "주유" = 1.0, "운송" = 1.0, "화물" = 1.0, "자동차" = 0.8, "택배" = 0.8, "정비" = 0.8 }
 WEATHER_WARNING = { "편의점" = 0.8, "약국" = 0.6, "카페" = 0.6, "음식" = 0.5, "세탁" = 0.5, "*" = 0.2 }
 # 기상청 예보 신호 — 키워드는 운영 DB 업종명(예: "소매·섬유·의복·신발 소매·여성 의류 소매업")에 맞췄다.

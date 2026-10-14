@@ -764,6 +764,7 @@ def target_branch(
         capped_types=rec_config.signal_share_capped_types,
         address_of={candidate.id: candidate.address for candidate in passed},
         same_address_cap=rec_config.same_address_cap,
+        name_of={candidate.id: candidate.name for candidate in passed},
     )
     ranked = assemble_recommendations(
         scored,
