@@ -167,5 +167,8 @@ def test_reason_facts_all_have_source_tags():
     assert facts[0].fact.source_tag == "지방행정인허가·2026-09-29"
     # 명부 1줄 요약: 인허가일과 경과일(기준일 − 인허가일)을 사실대로 쓴다
     assert facts[0].summary == "9월 25일 인허가, 개업 4일째 — 첫 거래를 만들 적기"
+    # 모집단 사실 요약: 거리·업종(마지막 단계)이 들어가 행마다 같은 문장이 반복되지 않는다
+    population = next(f for f in facts if f.fact.source_tag.startswith("소상공인상가정보"))
+    assert population.summary == "지점에서 약 0.5km, 한식 영업 중 — 방문 상담이 쉬운 거리"
     kept, errors = validate_facts([f.fact for f in facts], BRIEFING)
     assert len(kept) == len(facts) and not errors

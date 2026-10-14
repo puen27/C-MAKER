@@ -290,7 +290,16 @@ def _population_fact(candidate: BusinessCandidate) -> tuple[str, str]:
         f"지점에서 약 {candidate.distance_km:.1f}km 거리에서 영업 중인 {industry} 사업장으로, "
         "직접 방문 상담이 쉬운 담당 상권 안에 있습니다."
     )
-    return text, "담당 상권 내 영업 중 사업장 — 방문 상담이 쉬운 거리"
+    # 명부 1줄 요약 — 신호 없이 선정된 행이 같은 문장으로 줄줄이 반복되지 않게 거리·업종(마지막 단계)을 넣는다.
+    leaf = _industry_leaf(candidate.industry_name)
+    subject = f"{leaf} 영업 중" if leaf else "영업 중 사업장"
+    return text, f"지점에서 약 {candidate.distance_km:.1f}km, {subject} — 방문 상담이 쉬운 거리"
+
+
+def _industry_leaf(industry: str | None) -> str:
+    """'시설관리·임대·여행사·보조·여행사' → '여행사' (화면 표시와 같은 규칙)"""
+    parts = [part.strip() for part in (industry or "").split("·") if part.strip()]
+    return parts[-1] if parts else ""
 
 
 def _license_age_fact(licensed_on: date, as_of: date) -> tuple[str, str]:
