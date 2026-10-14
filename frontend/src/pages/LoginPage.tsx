@@ -36,8 +36,10 @@ export function LoginPage() {
     <main className="login-page">
       <div className="login-page__column">
         <header className="login-page__brand">
-          <BrandSignature size="lg" />
-          <h1 className="login-page__title">NH Campaigner</h1>
+          {/* 시그니처 워드마크가 곧 서비스명이므로 h1 안에 둔다(img alt = 'NH Campaigner'). */}
+          <h1 className="login-page__title">
+            <BrandSignature size="lg" />
+          </h1>
           <p className="login-page__tagline">영업점 아웃바운드 캠페인 에이전트</p>
           <p className="login-page__demo">NH농협은행 AI Agent 챌린지</p>
         </header>

@@ -26,16 +26,7 @@
   height: 22px;
   background: var(--line);
 }
-.utility-bar__logo {
-  font-weight: var(--font-weight-bold);
-  color: var(--primary);
-  font-size: 19px;
-  line-height: var(--line-height-tight);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
 .utility-bar__descriptor {
-  margin-left: calc(-1 * var(--space-2));
   font-size: 13px;
   color: var(--ink-3);
   white-space: nowrap;
@@ -81,6 +72,7 @@
   .utility-bar {
     padding: 0 var(--space-4);
   }
+  .utility-bar__divider,
   .utility-bar__descriptor {
     display: none;
   }

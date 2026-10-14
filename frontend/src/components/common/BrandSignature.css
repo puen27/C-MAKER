@@ -1,3 +1,4 @@
+/* 공식 시그니처 원본 비율(약 6.5:1)을 유지하도록 높이만 지정한다. */
 .brand-signature {
   display: block;
   flex-shrink: 0;
@@ -9,15 +10,16 @@
 .brand-signature--lg {
   height: 40px;
 }
-.brand-signature--slot {
-  display: grid;
-  place-items: center;
-  width: 136px;
-  border: 1.5px dashed var(--line);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--ink-3);
+/* 원본 파일을 못 불러왔을 때만 쓰는 글자 대체 */
+.brand-signature--fallback {
+  display: flex;
+  align-items: center;
+  font-weight: var(--font-weight-bold);
+  color: var(--ink);
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
-.brand-signature--lg.brand-signature--slot {
-  width: 180px;
+.brand-signature--lg.brand-signature--fallback {
+  font-size: var(--font-size-xl);
 }

@@ -1,5 +1,5 @@
 // 상단 유틸리티 바 (NAME-F01) — docs/8-wireframe.md §1, docs/9-style-guide.md §5.8
-// 공식 시그니처 | NH Campaigner + 부제 · 사용자명·역할 · 세션 타이머(만료 5분 전 경고색) · 연장 · 로그아웃.
+// 공식 시그니처(심볼+워드마크) | 부제 · 사용자명·역할 · 세션 타이머(만료 5분 전 경고색) · 연장 · 로그아웃.
 // (NH-Campaigner-UI-proposal.html 변경 포인트 1)
 // 세션이 만료되면 자동으로 로그아웃한다(USER.session_timeout_minutes).
 
@@ -58,7 +58,6 @@ export function TopUtilityBar() {
         <div className="utility-bar__brand">
           <BrandSignature />
           <span className="utility-bar__divider" aria-hidden="true" />
-          <span className="utility-bar__logo">NH Campaigner</span>
           <span className="utility-bar__descriptor">영업점 아웃바운드 캠페인 에이전트</span>
         </div>
         {user && (
