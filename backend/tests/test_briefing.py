@@ -109,7 +109,8 @@ class FakeLlm:
 
     def complete(self, system_prompt: str, user_prompt: str, *, max_tokens: int) -> LlmResult:
         payload = json.loads(user_prompt)
-        assert payload["facts"] == [f.text for f in FACTS]  # LLM 입력은 확정 사실 문장뿐
+        # LLM 입력은 확정 사실 문장 중 핵심 근거(첫 번째) 1개뿐(10/14 테스트 결과 10-3). 검증은 전체 facts로 한다.
+        assert payload["facts"] == [FACTS[0].text]
         if self.error:
             raise LlmUnavailableError("timeout")
         return LlmResult(text=self.text or "", model=self.model)
