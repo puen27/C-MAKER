@@ -78,7 +78,7 @@ export function CrmDownloadButton({ date, disabled }: CrmDownloadButtonProps) {
             <svg className="crm-download__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
               <path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10" />
             </svg>
-            CRM 업로드 파일 받기
+            CRM 등록 파일 받기
             <span className="btn__caret" aria-hidden="true">
               ▾
             </span>

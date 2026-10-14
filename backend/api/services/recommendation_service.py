@@ -17,6 +17,7 @@ from openpyxl import Workbook
 
 from backend.api.middlewares.error_middleware import ForbiddenError, NotFoundError
 from backend.api.repositories import audit_repository, recommendation_repository, threshold_repository
+from backend.common.config import get_pipeline_config
 from backend.common.schemas.auth import CurrentUser
 from backend.common.schemas.brief import BriefFactResponse, BriefResponse
 from backend.common.schemas.recommendation import RecommendationItem, RecommendationSummary
@@ -44,6 +45,7 @@ def list_recommendations(conn: psycopg.Connection, user: CurrentUser, day: date)
             score=round(row["score"], 2),
             reason_summary=row["reason_summary"] or PENDING_REASON,
             reason_source_tag=row["reason_source_tag"] or "",
+            signal_type=row.get("signal_type"),
             tag_status=row["tag_value"] or "UNTAGGED",
             rejected_reason=row["reject_reason"],
             carried_over_from_yesterday=bool(row["carried_over"]) and row["tag_value"] is None,
@@ -101,25 +103,57 @@ def get_brief(conn: psycopg.Connection, user: CurrentUser, recommendation_id: in
         tag_status=row["tag_value"] or "UNTAGGED",
         rejected_reason=row["reject_reason"],
         weather_note=row.get("weather_note"),
+        recommended_products=_brief_products(row.get("signal_type")),
     )
+
+
+def _brief_products(signal_type: str | None) -> list[str]:
+    mapping = get_pipeline_config().products_for(signal_type)
+    return list(mapping.brief_products) if mapping else []
 
 
 # ─────────────────────────── CRM 등록 파일 (REQ-07) ───────────────────────────
 
-# ⚠ CRM 컬럼 매핑은 CRM팀 확인 전(CLAUDE.md §8-2). docs/crm-integration.md §3 잠정 컬럼을 따른다.
+# 사내 CRM [02220] 고객관리 등록 항목 순서(10/13 수정 요청 D11). '방문함' 건만 내보낸다.
+# ⚠ 일괄 업로드 기능은 확인 전이라 '등록 파일'로 부른다. 전화번호 열은 두지 않는다(두낫콜 확인 선행).
 CRM_COLUMNS: list[tuple[str, str]] = [
-    ("순위", "rank"),
+    ("사업자등록번호", "biz_reg_no_blank"),
     ("상호명", "business_name"),
-    ("업종", "industry_name"),
-    ("주소", "address"),
-    ("사업자번호", "biz_reg_no"),
-    ("영업상태", "operating_status"),
-    ("선정사유", "reason_summary"),
-    ("신호출처", "source_tag"),
-    ("생성일", "recommended_on"),
-    ("지점코드", "branch_code"),
+    ("상담일자", "consulted_on"),
+    ("고객관리유형", "care_type"),
+    ("상세유형", "detail_type"),
+    ("채널", "channel"),
+    ("유입경로", "inflow"),
+    ("추진상품", "crm_products"),
+    ("내용", "content"),
+    ("등록사무소코드", "branch_code"),
 ]
+CRM_CARE_TYPE = "상품추진"
+CRM_CHANNEL = "방문"
+CRM_INFLOW = "신규(가망)고객"
+CRM_CONTENT_PREFIX = "[NH Campaigner] "
+CRM_CONTENT_MAX = 1000
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _crm_row(row: dict[str, Any]) -> dict[str, Any]:
+    """export_rows 1행 → CRM 등록 항목. 상세유형·추진상품은 pipeline.toml product_mapping을 쓴다."""
+    mapping = get_pipeline_config().products_for(row.get("signal_type"))
+    reason = row.get("reason_summary") or ""
+    source_tag = row.get("source_tag") or ""
+    content = CRM_CONTENT_PREFIX + reason + (f" [{source_tag}]" if source_tag else "")
+    return {
+        "biz_reg_no_blank": "",  # 사업자번호 미확보 — 공란으로 둔다
+        "business_name": row.get("business_name"),
+        "consulted_on": row.get("consulted_on"),
+        "care_type": CRM_CARE_TYPE,
+        "detail_type": mapping.detail_type if mapping else "",
+        "channel": CRM_CHANNEL,
+        "inflow": CRM_INFLOW,
+        "crm_products": ", ".join(mapping.crm_products) if mapping else "",
+        "content": content[:CRM_CONTENT_MAX],
+        "branch_code": row.get("branch_code"),
+    }
 
 
 def _cell(value: Any) -> Any:
@@ -138,7 +172,8 @@ def build_export(
 ) -> tuple[bytes, str, str]:
     branch_id = require_branch(user)
     rows = recommendation_repository.export_rows(conn, branch_id, day)
-    table = [[_cell(row[key]) for _label, key in CRM_COLUMNS] for row in rows]
+    crm_rows = [_crm_row(row) for row in rows]
+    table = [[_cell(row[key]) for _label, key in CRM_COLUMNS] for row in crm_rows]
     headers = [label for label, _key in CRM_COLUMNS]
     code = recommendation_repository.branch_code(conn, branch_id) or str(branch_id)
     filename = f"cmaker_{code}_{day.isoformat()}.{file_format}"

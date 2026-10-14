@@ -286,3 +286,48 @@ def test_share_cap_refills_with_deferred_when_not_enough_candidates():
 def test_share_cap_disabled_without_threshold():
     scored = [_scored(i, 100 - i, "FX_DAILY_CHANGE") for i in range(1, 30)]
     assert apply_signal_share_cap(scored, top_n=20, cap_pct=None, capped_types=CAPPED) == (scored, {})
+
+
+# ─────────────────────────── 같은 건물 상한 ───────────────────────────
+
+
+def test_same_address_cap_keeps_two_per_building_and_fills_with_next():
+    from backend.batch.targeting.exploration import building_key
+
+    scored = [_scored(i, 100 - i, "NEW_BUSINESS_OPENING", "BUSINESS") for i in range(1, 26)]
+    # 1~5번은 같은 건물(층·참고항목만 다름), 나머지는 각자 다른 주소
+    address_of: dict[int, str | None] = {
+        i: f"서울특별시 중구 을지로 100, {i}층 (을지로2가)" for i in range(1, 6)
+    }
+    address_of.update({i: f"서울특별시 중구 세종대로 {i}" for i in range(6, 26)})
+    ordered, pushed = apply_signal_share_cap(
+        scored, top_n=20, cap_pct=None, capped_types=[], address_of=address_of, same_address_cap=2
+    )
+    head = ordered[:20]
+    assert [item.business_id for item in head] == [1, 2] + list(range(6, 24))
+    assert pushed == {"SAME_ADDRESS": 3}
+    # 상한에 걸린 3곳은 뒤에도 남기지 않는다
+    assert {3, 4, 5}.isdisjoint(item.business_id for item in ordered)
+    assert building_key("서울특별시 중구 을지로 100, 3층 (을지로2가)") == "서울특별시 중구 을지로 100"
+    assert building_key(None) is None
+
+
+def test_same_address_cap_allows_short_list_when_candidates_run_out():
+    scored = [_scored(i, 100 - i, "NEW_BUSINESS_OPENING", "BUSINESS") for i in range(1, 6)]
+    address_of: dict[int, str | None] = {i: "서울특별시 구로구 디지털로 300" for i in range(1, 6)}
+    ordered, _pushed = apply_signal_share_cap(
+        scored, top_n=20, cap_pct=30, capped_types=CAPPED, address_of=address_of, same_address_cap=2
+    )
+    assert [item.business_id for item in ordered] == [1, 2]
+
+
+def test_same_address_cap_ignores_missing_address_and_combines_with_signal_cap():
+    scored = [_scored(i, 100 - i, "FX_DAILY_CHANGE") for i in range(1, 11)]
+    scored += [_scored(100 + i, 50 - i, None) for i in range(1, 20)]
+    address_of: dict[int, str | None] = {i: None for i in range(1, 11)}
+    ordered, pushed = apply_signal_share_cap(
+        scored, top_n=20, cap_pct=30, capped_types=CAPPED, address_of=address_of, same_address_cap=2
+    )
+    head = ordered[:20]
+    assert sum(1 for item in head if item.contributions) == 6
+    assert pushed == {"FX_DAILY_CHANGE": 4}

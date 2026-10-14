@@ -68,3 +68,5 @@ class BriefResponse(ApiModel):
     rejected_reason: RejectedReason | None = None
     # 비·눈 예보 참고(순위·근거와 무관). 해당 없으면 null
     weather_note: str | None = None
+    # 대표 신호로 규칙 매핑한 추천상품(pipeline.toml product_mapping). AI 화법과 별개로 표시한다.
+    recommended_products: list[str] = []

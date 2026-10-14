@@ -72,6 +72,8 @@ class RecommendationItem(ApiModel):
     score: float
     reason_summary: str
     reason_source_tag: str
+    # 대표 신호 종류(기여도 1위 signal_type). 기여 신호가 없으면 None — 화면은 신호명으로 묶는 데 쓴다.
+    signal_type: str | None = None
     tag_status: TagStatus
     rejected_reason: RejectedReason | None = None
     carried_over_from_yesterday: bool

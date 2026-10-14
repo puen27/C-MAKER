@@ -214,7 +214,11 @@ def get_data_freshness(conn: psycopg.Connection, user: CurrentUser) -> DataFresh
                 is_fallback=bool(item.get("is_fallback")),
             )
         )
-    max_delay = max((source.delay_days for source in sources), default=0)
+    # '지연'은 소스 장애로 이전 스냅샷을 쓴 경우(FALLBACK)만 뜻한다. 정상 수집인데 기준일이 늦은 것
+    # (환율의 주말·공휴일 미공표, 인허가 D-2 등 공표 주기)은 지연으로 보지 않는다(10/13 수정 요청 D10).
+    max_delay = max(
+        (source.delay_days for source in sources if source.status == "FALLBACK" or source.is_fallback), default=0
+    )
     list_ready = recommendation_repository.has_list(conn, today, user.branch_id)
 
     unavailable_names = [source.display_name for source in sources if source.status == "UNAVAILABLE"]
@@ -234,7 +238,7 @@ def get_data_freshness(conn: psycopg.Connection, user: CurrentUser) -> DataFresh
         message = f"일부 데이터를 수집하지 못했습니다: {format_source_names(unavailable_names)}."
     elif degraded_names:
         message = f"일부 데이터 정규화가 완료되지 않았습니다: {format_source_names(degraded_names)}."
-    elif has_fallback or max_delay > 0:
+    elif has_fallback:
         message = (f"일부 신호가 지연되었습니다(기준일 {max_delay}일 전)." if max_delay > 0
                    else "일부 신호가 지연되었습니다.")
     elif finished is not None and finished["status"] == "SUCCESS" and not list_ready:

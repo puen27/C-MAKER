@@ -10,6 +10,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { SourceStamp } from '../common/SourceStamp';
 import { TagButtons } from './TagButtons';
 import { TagStatusBadge } from './TagStatusBadge';
+import { industryLeaf } from '../../utils/industry';
 import type { Recommendation, RejectedReason, TagStatus } from '../../types/recommendation';
 import './RecommendationCard.css';
 
@@ -54,7 +55,9 @@ export function RecommendationCard({ recommendation, canTag, tagDisabled, onTag 
         >
           {recommendation.businessName}
         </Link>
-        <span className="rec-row__industry">{recommendation.industry}</span>
+        <span className="rec-row__industry" title={recommendation.industry}>
+          {industryLeaf(recommendation.industry)}
+        </span>
       </div>
       <div className="rec-row__why">
         <p className="rec-row__reason" title={recommendation.reasonSummary}>

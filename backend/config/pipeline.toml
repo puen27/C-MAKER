@@ -15,6 +15,9 @@ signal_share_capped_types = [
   "FX_DAILY_CHANGE", "OIL_PRICE_CHANGE", "WEATHER_WARNING",
   "TEMP_SHIFT_FORECAST", "SEASON_SHIFT_FORECAST", "FIRST_FREEZE_FORECAST", "FIRST_HEAT_FORECAST",
 ]
+# 같은 건물 상한: 주소(쉼표 앞 도로명주소)가 같은 사업장은 명부에 이 곳수까지만 싣는다. 빈 자리는 다음 순위로
+# 채우고, 후보가 모자라면 top_n 미만도 허용한다. 0이면 끈다.
+same_address_cap = 2
 
 [scoring]
 proximity_min = 0.5           # 근접도: 지점 위치 1.0 → 담당 반경 경계 0.5 (선형)
@@ -205,6 +208,59 @@ options = { prodcd = "B027", max_fallback_age_days = 2 }
 [sources.VWORLD_GEOCODER]     # 지점 주소 지오코딩 (RULE-BRANCH-03)
 display_name = "VWorld지오코더"
 url = "https://api.vworld.kr/req/address"
+
+# ─────────────────── 대표 신호 → 추천상품 매핑 ───────────────────
+# 브리프 '추천상품' 줄과 CRM 등록 파일(상세유형·추진상품)이 이 표 하나를 쓴다(10/13 수정 요청 ③).
+# 규칙으로 붙이는 표시 정보다. AI 화법(talk_script)에는 넣지 않는다 — product_terms 차단 대상이다.
+[product_mapping.NEW_BUSINESS_OPENING]
+detail_type = "수신추진"
+crm_products = ["수신", "전자금융", "카드"]
+brief_products = ["사업잘되는NH통장", "기업인터넷뱅킹", "기업스마트뱅킹", "All My Biz카드"]
+
+[product_mapping.INDUSTRY_NEW_OPENINGS]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.AREA_NEW_OPENINGS]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.FX_DAILY_CHANGE]
+detail_type = "외환추진"
+crm_products = ["외환"]
+brief_products = ["NH외환서비스"]
+
+[product_mapping.OIL_PRICE_CHANGE]
+detail_type = "여신추진"
+crm_products = ["여신", "카드"]
+brief_products = ["NH온택트보증서대출", "All My Biz카드"]
+
+[product_mapping.WEATHER_WARNING]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.TEMP_SHIFT_FORECAST]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.SEASON_SHIFT_FORECAST]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.FIRST_FREEZE_FORECAST]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
+
+[product_mapping.FIRST_HEAT_FORECAST]
+detail_type = "여신추진"
+crm_products = ["여신"]
+brief_products = ["NH온택트보증서대출"]
 
 # ─────────────────── 업종×신호 적합도 (0~1) ───────────────────
 # 키는 업종명에 포함되는 키워드, "*"는 모든 업종 기본값. RULE-TARGET-05 ③과

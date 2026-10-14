@@ -44,12 +44,12 @@ export function DataDelayBanner() {
       {freshness?.delayed && (
         <Banner action={showTrigger ? <ManualBatchTrigger onFinished={handleFinished} /> : undefined}>
           ⚠ {freshness.message}
-          {freshness.sources.some((source) => source.delayDays > 0) && (
+          {freshness.sources.some((source) => source.isFallback && source.delayDays > 0) && (
             <span className="banner__hint">
               {' '}
               (
               {freshness.sources
-                .filter((source) => source.delayDays > 0)
+                .filter((source) => source.isFallback && source.delayDays > 0)
                 .map((source) => `${source.displayName} ${source.delayDays}일 전`)
                 .join(', ')}
               )

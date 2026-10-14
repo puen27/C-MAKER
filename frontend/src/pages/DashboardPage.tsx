@@ -22,7 +22,7 @@ import { toUserMessage } from '../api/client';
 import type { Recommendation, RejectedReason, TagStatus } from '../types/recommendation';
 import { formatWeekdayKst, todayKst } from '../utils/date';
 import { canExportCrm, canTag } from '../utils/roles';
-import { groupBySource, sourceOf } from '../utils/sourceTag';
+import { groupBySignal, NO_SIGNAL_KEY, signalKeyOf, signalLabel } from '../utils/signal';
 import './DashboardPage.css';
 
 const FILTER_ITEMS: { value: DashboardFilter; label: string }[] = [
@@ -54,14 +54,14 @@ export function DashboardPage() {
   const tagging = useTagWithUndo();
 
   const userCanTag = user ? canTag(user.role) : false;
-  const sourceGroups = useMemo(() => groupBySource(recommendations), [recommendations]);
+  const signalGroups = useMemo(() => groupBySignal(recommendations), [recommendations]);
 
   const filteredRecommendations = useMemo(
     () =>
       recommendations.filter(
         (rec) =>
           (dashboardFilter === 'ALL' || rec.tagStatus === dashboardFilter) &&
-          (!signalFilter || sourceOf(rec) === signalFilter),
+          (!signalFilter || signalKeyOf(rec) === signalFilter),
       ),
     [recommendations, dashboardFilter, signalFilter],
   );
@@ -77,11 +77,14 @@ export function DashboardPage() {
   }));
 
   // 아침 브리핑 문장(변경 포인트 2): "오늘 만날 {전체 수}곳을 선정했습니다." "{1순위 신호} {그 신호 수}곳이 먼저입니다."
-  // 신호 코드가 없어 1순위 추천의 출처명을 신호 대신 쓴다.
-  const topGroup = sourceGroups[0];
+  // 1순위 추천의 대표 신호명을 쓴다. 기여 신호 없이 선정된 묶음이 맨 앞이면 둘째 줄은 생략한다.
+  const topGroup = signalGroups[0];
   const headline =
     recommendations.length > 0 ? `오늘 만날 ${recommendations.length}곳을 선정했습니다` : '오늘의 접촉';
-  const lede = topGroup && sourceGroups.length > 1 ? `${topGroup.source} 근거 ${topGroup.count}곳이 먼저입니다.` : null;
+  const lede =
+    topGroup && signalGroups.length > 1 && topGroup.key !== NO_SIGNAL_KEY
+      ? `${topGroup.label} ${topGroup.count}곳이 먼저입니다.`
+      : null;
 
   function handleTag(rec: Recommendation, status: TagStatus, rejectedReason?: RejectedReason) {
     tagging.tag(
@@ -116,7 +119,7 @@ export function DashboardPage() {
                 recommendations={recommendations}
                 yesterdayUntaggedCount={summary?.yesterdayUntaggedCount ?? 0}
               />
-              <SignalBarsPanel groups={sourceGroups} active={signalFilter} onSelect={setSignalFilter} />
+              <SignalBarsPanel groups={signalGroups} active={signalFilter} onSelect={setSignalFilter} />
             </>
           )}
         </div>
@@ -144,7 +147,7 @@ export function DashboardPage() {
             <div className="dashboard-page__tools">
               {signalFilter && (
                 <span className="dashboard-page__chip">
-                  {signalFilter}만 보는 중
+                  {signalLabel(signalFilter)}만 보는 중
                   <button type="button" aria-label="신호 필터 해제" onClick={() => setSignalFilter(null)}>
                     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                       <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />

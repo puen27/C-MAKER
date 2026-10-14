@@ -34,4 +34,6 @@ export interface Brief {
   rejectedReason?: RejectedReason | null;
   /** 비·눈 예보 참고 문장 — 선정 사유가 아니며 순위·화법에 쓰이지 않는다. 해당 없으면 null */
   weatherNote?: string | null;
+  /** 대표 신호로 규칙 매핑한 추천상품 — AI 화법이 아니라 설정 표(product_mapping)에서 온다 */
+  recommendedProducts?: string[];
 }

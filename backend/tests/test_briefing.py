@@ -165,5 +165,7 @@ def test_reason_facts_all_have_source_tags():
     facts = build_reason_facts(item, scored, {e.event_id: e for e in events}, CONFIG)
     assert facts[0].fact.text.startswith("2026-09-25에 인허가를 받은 신규 개업")
     assert facts[0].fact.source_tag == "지방행정인허가·2026-09-29"
+    # 명부 1줄 요약: 인허가일과 경과일(기준일 − 인허가일)을 사실대로 쓴다
+    assert facts[0].summary == "9월 25일 인허가, 개업 4일째 — 첫 거래를 만들 적기"
     kept, errors = validate_facts([f.fact for f in facts], BRIEFING)
     assert len(kept) == len(facts) and not errors

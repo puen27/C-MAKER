@@ -59,6 +59,27 @@ def test_csv_formula_injection_is_neutralized():
     assert _cell(None) == ""
 
 
+def test_crm_row_follows_crm_register_columns_and_product_mapping():
+    from datetime import date
+
+    from backend.api.services.recommendation_service import CRM_COLUMNS, _crm_row
+
+    row = _crm_row({
+        "business_name": "가나다 카페", "consulted_on": date(2026, 10, 14), "signal_type": "NEW_BUSINESS_OPENING",
+        "reason_summary": "10월 8일 인허가, 개업 6일째 — 첫 거래를 만들 적기",
+        "source_tag": "지방행정인허가·2026-10-12", "branch_code": "000101",
+    })
+    assert [label for label, _key in CRM_COLUMNS] == [
+        "사업자등록번호", "상호명", "상담일자", "고객관리유형", "상세유형", "채널", "유입경로", "추진상품", "내용", "등록사무소코드"]
+    assert row["biz_reg_no_blank"] == ""
+    assert (row["care_type"], row["channel"], row["inflow"]) == ("상품추진", "방문", "신규(가망)고객")
+    assert row["detail_type"] == "수신추진"
+    assert row["crm_products"] == "수신, 전자금융, 카드"
+    assert row["content"] == "[NH Campaigner] 10월 8일 인허가, 개업 6일째 — 첫 거래를 만들 적기 [지방행정인허가·2026-10-12]"
+    long_row = _crm_row({"reason_summary": "가" * 2000, "signal_type": None})
+    assert len(long_row["content"]) == 1000 and long_row["detail_type"] == "" and long_row["crm_products"] == ""
+
+
 def test_unauthenticated_request_uses_common_error_format(monkeypatch):
     monkeypatch.setenv("APP_ENV", "dev")
     from backend.api.app import create_app

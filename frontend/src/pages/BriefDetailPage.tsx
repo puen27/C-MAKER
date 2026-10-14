@@ -41,6 +41,8 @@ export function BriefDetailPage() {
           canTag={user ? canTag(user.role) : false}
           onTag={handleTag}
           tagPending={tagging.isPending}
+          staffName={user?.name}
+          branchName={user?.branchName}
         />
       )}
       <TagUndoToast

@@ -79,13 +79,19 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
         base_date = reference_date or event.as_of_date
         elapsed = max(0, (base_date - licensed).days) if licensed else None
         elapsed_text = f"인허가 후 {elapsed}일 지난" if elapsed else "막 인허가를 받은"
+        if licensed is None:
+            summary_head = "신규 개업 사업장"
+        elif elapsed:
+            summary_head = f"{_md(licensed)} 인허가, 개업 {elapsed}일째"
+        else:
+            summary_head = f"{_md(licensed)} 인허가, 개업 당일"
         return _Built(
             text=(
                 f"{licensed_raw}에 인허가를 받은 신규 개업 사업장입니다({elapsed_text} 시점). "
                 "개업 초기에는 주거래 은행과 매출 정산 계좌를 새로 정하는 경우가 많아, "
                 "첫 거래 관계를 만들기 좋은 시기입니다."
             ),
-            summary="신규 개업 사업장 — 주거래 은행을 정하기 전, 첫 거래를 만들 적기",
+            summary=f"{summary_head} — 첫 거래를 만들 적기",
             # '문을 여신'은 상품 용어 '여신'으로 차단되므로 '개업하신'으로 쓴다
             call_reason="최근 새로 개업하신 것을 확인하고 개업 인사차",
             call_purpose="개업 초기에 필요하신 매출 정산 계좌 개설이나 사업 운영 자금 준비를 지점에서 직접 도와드리고자",
@@ -97,10 +103,14 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
         return _Built(
             text=(
                 f"담당 상권 반경 {radius:g}km 안에 같은 업종({industry}) 매장이 최근 {count}곳 새로 생겼습니다. "
-                "경쟁 매장이 늘면 매출 관리와 운영 자금 점검이 필요해지는 경우가 많아, "
-                "기존 사업장에 먼저 연락드릴 이유가 됩니다."
+                # 신규 개업 사업장에도 붙을 수 있으므로 '기존 사업장' 같은 표현을 쓰지 않는다(10/13 수정 요청 ②-3).
+                "경쟁 매장이 늘면 매출 흐름이 달라지는 경우가 많아, "
+                "운영 자금 점검이 필요해질 수 있는 시기입니다."
             ),
-            summary=f"같은 업종 경쟁 매장 {count}곳 신규 개업 — 매출·운영 자금 점검 수요",
+            summary=(
+                f"{_radius_text(radius)}같은 업종 {count}곳 신규 개업 ({_mmdd(event.as_of_date)} 기준) "
+                "— 매출·운영 자금 점검 수요"
+            ),
             call_reason=f"최근 주변에 같은 업종 매장이 {count}곳 새로 문을 열어 상권 변화를 말씀드리고자",
             call_purpose="경쟁이 늘어나는 시기에 매출 관리나 운영 자금 흐름에서 불편하신 점이 없는지 여쭙고 도와드리고자",
         )
@@ -113,7 +123,10 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 "상권에 새 매장이 늘면 유동 고객과 결제 건수도 함께 변할 수 있어, "
                 "주변 사업장의 운영 준비 상황을 확인해 볼 시점입니다."
             ),
-            summary=f"인근 상권 신규 개업 {count}건 — 상권이 활발해지는 시기, 운영 준비 점검",
+            summary=(
+                f"{_radius_text(radius)}신규 개업 {count}건 ({_mmdd(event.as_of_date)} 기준) "
+                "— 상권 변화, 운영 준비 점검"
+            ),
             call_reason=f"최근 주변 상권에 새로 문을 연 사업장이 {count}곳 늘어 지역 상권 소식을 전해 드리고자",
             call_purpose="상권이 바뀌는 시기에 사업장 운영에 필요하신 금융 업무를 지점에서 먼저 챙겨드리고자",
         )
@@ -126,7 +139,7 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 "수입 원가나 해외 결제·송금 비용이 달라질 수 있는 업종이라, "
                 "환전·송금 시점 관리에 대한 상담 수요가 생길 수 있습니다."
             ),
-            summary=f"환율 {change:+.2f}% 변동 — 해외 결제·송금 비용 부담 점검",
+            summary=f"원/달러 {change:+.2f}% ({_mmdd(event.as_of_date)} 기준) — 해외 결제·송금 비용 부담 점검",
             call_reason="최근 원/달러 환율 변동이 커져 해외 거래가 있는 사업장에 상황을 여쭙고자",
             call_purpose="수입 대금 결제나 해외 송금, 환전 시점 관리에서 부담되시는 부분을 확인하고 도와드리고자",
         )
@@ -139,7 +152,7 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 "연료비 비중이 큰 업종이라 운영비와 자금 흐름에 바로 영향을 받을 수 있어, "
                 "자금 운용 상황을 함께 점검해 볼 시점입니다."
             ),
-            summary=f"{sido} 유가 {change:+.2f}% 변동 — 연료비·운영 자금 부담 변화",
+            summary=f"{sido} 휘발유 {change:+.2f}% ({_mmdd(event.as_of_date)} 기준) — 연료비·운영 자금 부담 변화",
             call_reason="최근 지역 유가가 움직여 연료비 부담이 달라지셨을 것 같아",
             call_purpose="운영비 변화에 따른 자금 흐름 관리에서 필요하신 부분을 미리 여쭙고 도와드리고자",
         )
@@ -154,7 +167,10 @@ def _event_fact(event: ActiveEvent, reference_date: date | None = None) -> _Buil
                 "날씨 영향을 받는 업종이라 영업 차질이나 일시적인 매출 변동이 생길 수 있어, "
                 "안부 연락으로 관계를 만들기 좋은 시점입니다."
             ),
-            summary=f"{warning} 발효 — 영업 차질 우려, 안부 연락 적기",
+            summary=(
+                f"{detail.get('sido') + ' ' if detail.get('sido') else ''}{warning} 발효 "
+                f"({_mmdd(event.as_of_date)} 기준) — 영업 차질 우려, 안부 연락 적기"
+            ),
             call_reason=f"{warning}가 발효되어 영업에 지장은 없으신지 안부를 여쭙고자",
             call_purpose="날씨 때문에 매출이 흔들릴 때 필요하실 수 있는 자금 운용 지원을 지점에서 안내해 드리고자",
         )
@@ -166,6 +182,22 @@ _FORECAST_KINDS = frozenset(
 )
 # 예보 사유의 화법 목적 — 상품·여신 용어 없이 운영 준비를 돕는다는 수준으로만 말한다.
 _FORECAST_CALL_PURPOSE = "계절이 바뀌는 시기에 필요하신 운영 자금 흐름이나 결제 관련 업무를 지점에서 미리 챙겨드리고자"
+
+
+def _mmdd(value: Any) -> str:
+    """명부 1줄 요약용 기준일 표기 — 2026-10-09 → 10.09"""
+    parsed = value if isinstance(value, date) else _parse_date(value)
+    return f"{parsed.month:02d}.{parsed.day:02d}" if parsed else str(value)
+
+
+def _date_prefix(value: Any) -> str:
+    """예보 대상일이 있을 때만 '10.15 ' 접두어를 붙인다."""
+    return f"{_mmdd(value)} " if _parse_date(value) else ""
+
+
+def _radius_text(radius: float) -> str:
+    """반경 값이 있을 때만 '반경 1km ' 접두어를 붙인다(데이터에 없는 값은 만들지 않음)."""
+    return f"반경 {radius:g}km " if radius > 0 else ""
 
 
 def _md(iso: Any) -> str:
@@ -195,7 +227,7 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 "기온이 크게 바뀌는 시기에는 계절 물품 준비나 영업 방식에 변화가 생기기 쉬워, "
                 "미리 안부를 여쭙기 좋은 시점입니다."
             ),
-            summary=f"기온 {abs(diff):g}°C {word} 예보 — 계절 준비 수요 점검",
+            summary=f"{_date_prefix(detail.get('forecast_date'))}기온 {abs(diff):g}°C {word} 예보 — 계절 준비 수요 점검",
             call_reason=f"기온이 크게 {'내려갈' if diff < 0 else '올라갈'} 것으로 예보되어 영업 준비에 불편은 없으신지 여쭙고자",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
@@ -211,7 +243,10 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 f"평균({_deg(detail.get('near_mean'))})보다 {abs(diff):g}°C {direction} 것으로 예보되었습니다. "
                 "계절이 바뀌는 시기라 판매 품목 교체나 냉난방 준비 같은 운영 변화가 생기기 쉽습니다."
             ),
-            summary=f"계절 전환 예보(평균 최저 {abs(diff):g}°C {'하락' if diff < 0 else '상승'}) — 계절 운영 준비 시기",
+            summary=(
+                f"{_date_prefix(detail.get('far_start'))}계절 전환 예보"
+                f"(평균 최저 {abs(diff):g}°C {'하락' if diff < 0 else '상승'}) — 계절 운영 준비 시기"
+            ),
             call_reason=f"날씨가 {word} 시기로 접어든다는 예보가 있어 계절 준비 상황을 여쭙고자",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
@@ -225,7 +260,10 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
                 f"{_deg(detail.get('value'))}로, {season_word} 들어 처음 영하가 예보되었습니다. "
                 "난방 준비와 겨울철 운영 전환이 시작되는 시점입니다."
             ),
-            summary=f"{season_word} 첫 영하 예보 — 겨울철 운영 준비 시기",
+            summary=(
+                f"{_date_prefix(detail.get('forecast_date'))}{season_word} 첫 영하 예보"
+                f"({_deg(detail.get('value'))}) — 겨울철 운영 준비 시기"
+            ),
             call_reason=f"{season_word} 첫 영하 날씨가 예보되어 겨울철 준비에 불편은 없으신지 여쭙고자",
             call_purpose=_FORECAST_CALL_PURPOSE,
         )
@@ -237,7 +275,10 @@ def _forecast_fact(kind: str, detail: dict[str, Any]) -> _Built:
             f"{_deg(detail.get('value'))}로, 올해 처음 폭염 수준(33°C 이상)이 예보되었습니다. "
             "냉방·음료 수요가 커지는 시기라 여름철 운영 준비를 점검해 볼 시점입니다."
         ),
-        summary="올해 첫 폭염 예보 — 여름철 운영 준비 시기",
+        summary=(
+            f"{_date_prefix(detail.get('forecast_date'))}올해 첫 폭염 예보"
+            f"({_deg(detail.get('value'))}) — 여름철 운영 준비 시기"
+        ),
         call_reason="올해 첫 폭염 수준의 더위가 예보되어 여름철 준비에 불편은 없으신지 여쭙고자",
         call_purpose=_FORECAST_CALL_PURPOSE,
     )

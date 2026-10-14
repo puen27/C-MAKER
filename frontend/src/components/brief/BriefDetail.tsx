@@ -10,6 +10,7 @@ import { SourceStamp } from '../common/SourceStamp';
 import { TagButtons } from '../recommendation/TagButtons';
 import { TagStatusBadge } from '../recommendation/TagStatusBadge';
 import type { Brief } from '../../types/brief';
+import { industryLeaf } from '../../utils/industry';
 import type { RejectedReason, TagStatus } from '../../types/recommendation';
 import './BriefDetail.css';
 
@@ -18,7 +19,16 @@ interface BriefDetailProps {
   canTag: boolean;
   onTag: (status: TagStatus, rejectedReason?: RejectedReason) => void;
   tagPending?: boolean;
+  /** 통화 안내 고정 문구에 넣을 로그인 직원 이름·지점명 */
+  staffName?: string | null;
+  branchName?: string | null;
 }
+
+// 통화 안내 고정 문구 — AI 화법과 구분해 규칙으로 붙인다(금융소비자보호법 안내, 10/13 수정 요청 ③).
+// 상품명은 AI 화법에 넣지 않는다(상품 용어 차단 규칙). 문구 확정 전 준법감시 확인 필요.
+const CALL_END_NOTICE = '연락을 원하지 않으시면 말씀해 주세요. 다시 연락드리지 않겠습니다.';
+const OPT_OUT_NOTICE =
+  "연락을 원하지 않는 고객은 '부적합 → 접촉 불가'로 기록하면 명부에서 영구 제외됩니다. 방문은 오전 8시~오후 9시에만 합니다.";
 
 // 배치 화법은 '인사·연락 사유 / 연락 목적 / 다음 행동 요청' 3문장 구조다(brief_generator.py).
 // 검증에서 일부 문장이 빠지면 단계가 어긋나므로, 3문장이 모두 있을 때만 단계 이름을 붙인다.
@@ -42,8 +52,11 @@ function Svg({ children }: { children: ReactNode }) {
   );
 }
 
-export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailProps) {
+export function BriefDetail({ brief, canTag, onTag, tagPending, staffName, branchName }: BriefDetailProps) {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const products = brief.recommendedProducts ?? [];
+  const bankAndBranch = branchName ? `NH농협은행 ${branchName}` : 'NH농협은행';
+  const callStartNotice = `은행·지점명(${bankAndBranch}), 직원 이름${staffName ? `(${staffName})` : ''}, 연락 목적, 안내할 상품 종류를 먼저 밝힙니다.`;
   const [keyFact, ...supportFacts] = brief.reasonFacts;
   const labeled = brief.scriptLines.length === STEP_LABELS.length;
 
@@ -70,7 +83,7 @@ export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailPro
             <dl className="brief-detail__facts-list">
               <div>
                 <dt>업종</dt>
-                <dd>{brief.industry}</dd>
+                <dd title={brief.industry}>{industryLeaf(brief.industry)}</dd>
               </div>
               <div>
                 <dt>거리</dt>
@@ -113,6 +126,13 @@ export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailPro
                   </div>
                 )}
               </>
+            )}
+            {products.length > 0 && (
+              <div className="brief-detail__products">
+                <span className="brief-detail__lbl">추천상품</span>
+                <p>{products.join(' · ')}</p>
+                <p className="brief-detail__products-note">선정 신호에 맞춰 규칙으로 정한 상품입니다. AI가 고르지 않습니다.</p>
+              </div>
             )}
           </section>
 
@@ -188,6 +208,21 @@ export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailPro
                 {copyNotice}
               </p>
             )}
+            <div className="brief-detail__guide" role="note" aria-labelledby="brief-call-guide">
+              <h3 id="brief-call-guide" className="brief-detail__guide-title">
+                통화 안내 <span className="brief-detail__guide-tag">고정 문구</span>
+              </h3>
+              <dl className="brief-detail__guide-list">
+                <div>
+                  <dt>통화 시작 전</dt>
+                  <dd>{callStartNotice}</dd>
+                </div>
+                <div>
+                  <dt>통화 마칠 때</dt>
+                  <dd>“{CALL_END_NOTICE}”</dd>
+                </div>
+              </dl>
+            </div>
           </section>
 
           <section className="brief-detail__panel" aria-labelledby="brief-tagging">
@@ -207,6 +242,7 @@ export function BriefDetail({ brief, canTag, onTag, tagPending }: BriefDetailPro
               )}
             </div>
             <p className="brief-detail__hint">기록은 내일 명부에 반영됩니다.</p>
+            <p className="brief-detail__hint brief-detail__optout">{OPT_OUT_NOTICE}</p>
           </section>
         </aside>
       </div>

@@ -793,6 +793,29 @@ def test_data_freshness_message_priority(
     assert expected_message in (response.message or "")
 
 
+def test_data_freshness_ignores_publication_lag_without_fallback(monkeypatch):
+    """정상 수집(FRESH)인데 기준일만 늦은 경우(환율 주말 미공표 등)는 지연으로 보지 않는다."""
+    finished = {"status": "SUCCESS", "source_status": [_source_status("ECOS_FX", "FRESH", delay_days=3)]}
+    monkeypatch.setattr(
+        batch_service,
+        "get_pipeline_config",
+        lambda: SimpleNamespace(source_display_name=lambda name: f"display-{name}"),
+    )
+    monkeypatch.setattr(batch_service, "today_kst", lambda: date(2026, 10, 1))
+    monkeypatch.setattr(batch_service.batch_run_repository, "latest_finished_for_date", lambda conn, day: finished)
+    monkeypatch.setattr(batch_service.batch_run_repository, "running", lambda conn: None)
+    monkeypatch.setattr(batch_service.recommendation_repository, "has_list", lambda conn, day, branch_id: True)
+
+    response = batch_service.get_data_freshness(
+        object(), CurrentUser(id=1, role="BRANCH_MANAGER", branch_id=1)  # type: ignore[arg-type]
+    )
+
+    assert response.delayed is False
+    assert response.message is None
+    assert response.max_delay_days == 0
+    assert response.sources[0].delay_days == 3
+
+
 def test_api_stale_cleanup_uses_same_direct_session_for_lock_update_and_unlock(monkeypatch):
     lock_conn = FakeLockConnection(True)
     _patch_direct_connection(monkeypatch, lock_conn)

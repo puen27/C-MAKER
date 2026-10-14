@@ -10,7 +10,7 @@ export type DashboardFilter = 'ALL' | TagStatus;
 interface FilterState {
   dashboardFilter: DashboardFilter;
   setDashboardFilter: (filter: DashboardFilter) => void;
-  /** 신호별 대상 패널에서 고른 신호(출처명). null이면 전체 */
+  /** 신호별 대상 패널에서 고른 신호 키(signalType, utils/signal.ts). null이면 전체 */
   signalFilter: string | null;
   setSignalFilter: (signal: string | null) => void;
 }

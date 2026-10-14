@@ -41,6 +41,8 @@ export interface Recommendation {
   reasonSummary: string;
   /** RULE-BRIEF-01 출처 태그, 형식: "소스명·기준일" */
   reasonSourceTag: string;
+  /** 대표 신호 종류(기여도 1위 signal_type). 기여 신호 없이 선정되면 null */
+  signalType?: string | null;
   tagStatus: TagStatus;
   rejectedReason?: RejectedReason | null;
   /** 직전 명부에서 미태깅으로 이어진 항목인지(UC-09 예외 흐름) */

@@ -755,13 +755,15 @@ def target_branch(
 
     # ③ TOP 20 (그중 3건 탐색 슬롯 — Phase 2 전까지 비활성)
     rec_config = config.recommendation
-    # 신호별 명부 상한 — 상권·거시 신호 한 종류가 명부를 채우지 않게 한다(밀려난 건수는 통계에만 남긴다).
+    # 명부 다양성 상한 — 상권·거시 신호 한 종류나 같은 건물이 명부를 채우지 않게 한다(밀려난 건수는 통계에만 남긴다).
     share_cap = thresholds.get("SIGNAL_SHARE_CAP_PCT")
     scored, share_cap_pushed = apply_signal_share_cap(
         scored,
         top_n=rec_config.top_n,
         cap_pct=share_cap.threshold_value if share_cap else None,
         capped_types=rec_config.signal_share_capped_types,
+        address_of={candidate.id: candidate.address for candidate in passed},
+        same_address_cap=rec_config.same_address_cap,
     )
     ranked = assemble_recommendations(
         scored,

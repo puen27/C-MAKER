@@ -22,6 +22,8 @@ def list_for_branch(
         """
         SELECT r.id, r.rank_in_branch AS rank, b.name AS business_name, b.industry_name AS industry,
                r.score::float8 AS score, br.reason_summary, br.reason_facts->0->>'sourceTag' AS reason_source_tag,
+               -- 대표 신호 = 기여도 1위(score_detail.contributions는 기여도 내림차순 저장, dominant_signal_type과 같다)
+               r.score_detail->'contributions'->0->>'signal_type' AS signal_type,
                t.tag_value, t.reject_reason,
                EXISTS (
                    SELECT 1 FROM recommendation y
@@ -82,6 +84,7 @@ def get_brief_detail(conn: psycopg.Connection, recommendation_id: int) -> dict[s
                b.name AS business_name, b.industry_name, b.address,
                br.reason_summary, br.reason_facts, br.talk_script, br.checklist, br.generation_status,
                r.score_detail->>'weather_note' AS weather_note,
+               r.score_detail->'contributions'->0->>'signal_type' AS signal_type,
                t.tag_value, t.reject_reason
         FROM recommendation r
         JOIN business b ON b.id = r.business_id
@@ -94,15 +97,21 @@ def get_brief_detail(conn: psycopg.Connection, recommendation_id: int) -> dict[s
 
 
 def export_rows(conn: psycopg.Connection, branch_id: int, day: date) -> list[dict[str, Any]]:
-    """CRM 등록 파일 행. 영업상태 '정상'만 포함한다(crm-integration.md §6)."""
+    """CRM 등록 파일 행. '방문함'으로 기록한 건만, 영업상태 '정상'만 포함한다(crm-integration.md §6, 10/13 D11).
+
+    상담일자는 기록 시각(tagged_at)의 KST 날짜다.
+    """
     return conn.execute(
         """
         SELECT r.rank_in_branch AS rank, b.name AS business_name, b.industry_name, b.address, b.biz_reg_no,
                b.operating_status, br.reason_summary, br.reason_facts->0->>'sourceTag' AS source_tag,
+               r.score_detail->'contributions'->0->>'signal_type' AS signal_type,
+               (t.tagged_at AT TIME ZONE 'Asia/Seoul')::date AS consulted_on,
                r.recommended_on, bc.branch_code
         FROM recommendation r
         JOIN business b ON b.id = r.business_id
         JOIN branch bc ON bc.id = r.branch_id
+        JOIN tag_feedback t ON t.recommendation_id = r.id AND t.tag_value = 'VISITED'
         LEFT JOIN brief br ON br.recommendation_id = r.id
         WHERE r.branch_id = %s AND r.recommended_on = %s AND b.operating_status = '정상'
         ORDER BY r.rank_in_branch

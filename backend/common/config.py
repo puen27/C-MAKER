@@ -118,6 +118,8 @@ class RecommendationConfig(BaseModel):
     exploration_enabled: bool = False
     min_sample_for_update: int = 30
     signal_share_capped_types: list[str] = Field(default_factory=list)
+    # 같은 건물(같은 도로명주소) 최대 곳수. 0이면 끈다.
+    same_address_cap: int = Field(default=0, ge=0)
 
 
 class ScoringConfig(BaseModel):
@@ -180,6 +182,17 @@ class BriefingConfig(BaseModel):
     max_output_tokens: int = 400
 
 
+class ProductMappingEntry(BaseModel):
+    """대표 신호 → 추천상품 매핑 1건. 브리프 '추천상품' 줄과 CRM 등록 파일이 같은 표를 쓴다.
+
+    AI 화법(talk_script)에는 넣지 않는다 — 상품 용어 차단 규칙(citation_guard) 대상이기 때문이다.
+    """
+
+    detail_type: str              # CRM 상세유형 (예: 수신추진)
+    crm_products: list[str]       # CRM 추진상품 (예: 수신, 전자금융, 카드)
+    brief_products: list[str]     # 브리프 추천상품 (예: 사업잘되는NH통장)
+
+
 class SourceConfig(BaseModel):
     """소스별 엔드포인트·표시명·수집 파라미터. 스펙 변경 시 코드 대신 이 설정을 고친다."""
 
@@ -203,6 +216,11 @@ class PipelineConfig(BaseModel):
     kma_mid_ta_region_by_sido: dict[str, str] = Field(default_factory=dict)
     kma_mid_land_region_by_sido: dict[str, str] = Field(default_factory=dict)
     opinet_sido_code: dict[str, str]
+    # 대표 신호(signal_type) → 추천상품 매핑. 키가 없는 신호는 추천상품을 표시하지 않는다.
+    product_mapping: dict[str, ProductMappingEntry] = Field(default_factory=dict)
+
+    def products_for(self, signal_type: str | None) -> ProductMappingEntry | None:
+        return self.product_mapping.get(signal_type) if signal_type else None
 
     def source_display_name(self, source_name: str) -> str:
         source = self.sources.get(source_name)
