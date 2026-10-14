@@ -170,5 +170,8 @@ def test_reason_facts_all_have_source_tags():
     # 모집단 사실 요약: 거리·업종(마지막 단계)이 들어가 행마다 같은 문장이 반복되지 않는다
     population = next(f for f in facts if f.fact.source_tag.startswith("소상공인상가정보"))
     assert population.summary == "지점에서 약 0.5km, 한식 영업 중 — 방문 상담이 쉬운 거리"
+    # 상권 단위 신호(기상특보)는 여러 행에 같은 이벤트가 붙으므로 업종·거리를 덧붙인다
+    warning = next(f for f in facts if "폭염주의보" in f.summary)
+    assert warning.summary == "서울 폭염주의보 발효 (09.29 기준) · 한식 0.5km — 영업 차질 우려, 안부 연락 적기"
     kept, errors = validate_facts([f.fact for f in facts], BRIEFING)
     assert len(kept) == len(facts) and not errors

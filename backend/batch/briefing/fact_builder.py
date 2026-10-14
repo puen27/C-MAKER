@@ -296,6 +296,14 @@ def _population_fact(candidate: BusinessCandidate) -> tuple[str, str]:
     return text, f"지점에서 약 {candidate.distance_km:.1f}km, {subject} — 방문 상담이 쉬운 거리"
 
 
+def _with_place(summary: str, candidate: BusinessCandidate) -> str:
+    """'반경 1km 신규 개업 4건 (10.09 기준) — 상권 변화…' → '… (10.09 기준) · 한식 0.3km — 상권 변화…'"""
+    leaf = _industry_leaf(candidate.industry_name)
+    place = f"{leaf} {candidate.distance_km:.1f}km" if leaf else f"지점에서 {candidate.distance_km:.1f}km"
+    head, sep, tail = summary.partition(" — ")
+    return f"{head} · {place}{sep}{tail}"
+
+
 def _industry_leaf(industry: str | None) -> str:
     """'시설관리·임대·여행사·보조·여행사' → '여행사' (화면 표시와 같은 규칙)"""
     parts = [part.strip() for part in (industry or "").split("·") if part.strip()]
@@ -343,10 +351,12 @@ def build_reason_facts(
             continue
         seen_types.add(event.signal_type)
         tag = _tag(config, event.source_name, event.as_of_date.isoformat())
+        # 상권·업종 단위 신호는 같은 이벤트가 여러 행에 붙어 요약이 똑같아진다 — 사업장의 업종·거리를 덧붙인다.
+        summary = built.summary if event.scope == "BUSINESS" else _with_place(built.summary, candidate)
         facts.append(
             ReasonFact(
                 fact=tag.model_copy(update={"text": built.text}),
-                summary=built.summary,
+                summary=summary,
                 call_reason=built.call_reason,
                 call_purpose=built.call_purpose,
             )
