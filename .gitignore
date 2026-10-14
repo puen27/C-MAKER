@@ -1,5 +1,9 @@
 .env
 
+# SSH 키 (EC2 접속용) — 저장소에 올리지 않는다
+*.pem
+*.ppk
+
 # Python
 .venv/
 __pycache__/

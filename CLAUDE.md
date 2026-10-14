@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-이 파일은 BranchSense(가칭) 프로젝트에서 Claude Code가 코드를 작성/수정할 때 반드시 따라야 하는 정책을 정의한다. 근거는 [`docs/2-prd.md`](docs/2-prd.md) (PRD v1.1.2, 2026-08-26)이며, PRD와 이 문서가 상충하면 **PRD가 우선**하고 이 문서를 갱신한다. (이전 버전 `docs/branchsense-prd.md`(v0.1)는 `docs/1-domain-definition.md`·`docs/2-prd.md` 체계로 재구성되며 폐기·삭제되었다.)
+이 파일은 C-MAKER 프로젝트(시스템·코드명 C-MAKER, 사용자 화면 서비스 표시명 NH Campaigner)에서 Claude Code가 코드를 작성/수정할 때 반드시 따라야 하는 정책을 정의한다. 근거는 [`docs/2-prd.md`](docs/2-prd.md) (PRD v1.1.2, 2026-08-26)이며, PRD와 이 문서가 상충하면 **PRD가 우선**하고 이 문서를 갱신한다. (이전 버전 `docs/branchsense-prd.md`(v0.1)는 `docs/1-domain-definition.md`·`docs/2-prd.md` 체계로 재구성되며 폐기·삭제되었다.)
 
 ## 프로젝트 한 줄 요약
 
@@ -43,7 +43,7 @@ INPUT(지점 등록) → SENSE(신호 감지, 매일 07:30) → {TARGET(명부),
 - 임계치는 **코드에 하드코딩하지 않고 설정 파일로 외부화**한다 (본부 관리자가 UI에서 조정 가능해야 함).
 - 임계치 미달 변화도 **원장에는 저장**한다 (사후 분석용). 이벤트 목록에만 노출하지 않는다.
 - 동일 대상·동일 신호는 쿨다운(기본 14일) 내 재발 시 기존 이벤트에 **병합**한다 (신규 이벤트로 중복 생성 금지).
-- 지점당 일일 이벤트 상한(기본 8건)을 넘으면 점수 순 절사 + "외 N건" 표시.
+- 지점당 일일 이벤트 상한(기본 12건, `THRESHOLD_CONFIG.DAILY_EVENT_CAP` — 2026-10-13 8건→12건 변경)을 넘으면 점수 순 절사 + "외 N건" 표시.
 - 외부 소스 1개 장애 시 **배치 전체를 실패시키지 않는다**. 전일 스냅샷으로 폴백하고 "데이터 지연(기준일 N일 전)" 배지를 붙인다. 소스별로 독립적인 실패 처리를 구현한다.
 - SLA: 전 지점 배치 07:30 완료 (P95). 초과 시 운영자 알림.
 
@@ -150,10 +150,11 @@ backend/
   batch/      connectors / normalizers / sensing / targeting / briefing / population / geocoding
               run_daily.py(07:30 SLA) · run_monthly.py(모집단) · geocoding/geocode_job.py(10분)
   common/     config(.env + config/pipeline.toml), db/pool, geo, snapshot_store, schemas(Pydantic)
-  config/pipeline.toml   판정 구조 설정(TOP 20·탐색 슬롯·업종×신호 적합도·소스 엔드포인트)
-  database/   schema.sql(전용 스키마 cmaker) · seed.sql(지점·계정·임계치 초기값)
+  config/pipeline.toml   판정 구조 설정(TOP 20·탐색 슬롯·명부 상한·업종×신호 적합도·추천상품 매핑·소스 엔드포인트)
+  database/   schema.sql(전용 스키마 cmaker) · seed.sql(지점·계정·임계치 초기값) · patches/(운영 DB 증분 패치)
   scripts/load_dev_fixture.py   APP_ENV=dev 전용 가상 데이터
-  tests/      TEST-01(승격) · TEST-02(배제·스코어링) · TEST-03(그라운딩 회귀셋)
+  tests/      test_event_promoter(승격) · test_targeting(배제·스코어링) · test_briefing(그라운딩 회귀셋)
+              · normalizers · forecast · permit_connector · api_rules · batch_execution · daily/monthly_batch_safety
 frontend/     React 19 + TS + Zustand + TanStack Query (vite dev 서버가 /api → 127.0.0.1:8000 프록시)
 deploy/       nginx · systemd(api/frontend) · cron
 ```
@@ -175,9 +176,12 @@ cd frontend && npm ci && npm run build && npm run lint      # 개발: npm run de
 
 ### 구현상 결정 (문서와 다른 점)
 
-- LLM은 브리프 **화법만** 쓴다. 선정 사유 사실 문장·출처 태그·체크리스트는 결정론적으로 생성한다. 화법은 `citation_guard`가 근거 없는 수치·금칙 표현·상품 용어를 차단한다(10번 문서 §8.3의 "후처리 검증 없음" 대신 §0.3 원칙을 따름). 게이트웨이 미설정·장애 시 정형 인사 화법(TEMPLATE)으로 대체한다.
-- 상품 안내 문장은 RAG가 없는 MVP에서 전부 차단한다(§0.8).
+- LLM은 브리프 **화법만** 쓴다. 호출은 LiteLLM Gateway(OpenAI 호환 Chat Completion, `batch/briefing/llm_client.py`)이며 §1의 Bedrock AI Agent·Knowledge Base(RAG)는 미구현이다. 선정 사유 사실 문장·출처 태그·체크리스트는 결정론적으로 생성한다. 화법은 `citation_guard`가 근거 없는 수치·금칙 표현·상품 용어를 후처리 검증으로 차단한다(§0.3, 10번 문서 §8.6). 게이트웨이 미설정·장애 시 정형 인사 화법(TEMPLATE)으로 대체한다.
+- 화법은 3문장 구조(인사·연락 사유 / 연락 목적 / 방문·상담 요청)이며, 인사말 기관명은 `NH농협은행`(`pipeline.toml` `greeting_org_name`)이다.
+- AI 화법(`talk_script`)에서는 상품어(`pipeline.toml` `product_terms`)를 전부 차단한다(§0.8, MVP에 RAG 없음). 브리프 '추천상품' 줄과 CRM 등록 파일의 상세유형·추진상품은 `pipeline.toml` `[product_mapping]`(대표 신호→상품)의 규칙 기반 표시 정보로 붙이며 LLM을 쓰지 않는다.
+  - 이 규칙 기반 상품 표시가 §0.8(상품 안내는 RAG 인용 필수)과 상충하지 않는지 준법 검수 확인 필요.
+- 명부 구성 상한: 신호별 명부 상한 — 주 사유가 상권·거시 신호 7종(환율·유가·특보·예보 4종, `pipeline.toml` `signal_share_capped_types`)인 추천은 한 종류당 지점 명부의 `THRESHOLD_CONFIG.SIGNAL_SHARE_CAP_PCT`(기본 30%)까지만 싣는다. 같은 건물 상한 — 같은 도로명주소 사업장은 `same_address_cap`(기본 2곳)까지만 싣는다. 넘치는 자리는 다음 순위로 채운다.
 - 탐색 슬롯은 구조만 두고 `exploration_enabled=false`(Phase 2 가동, §9).
 - `python-jose` 대신 `PyJWT`, pydantic 2.13(Python 3.14 호환), API DB 풀은 동기 `ConnectionPool`.
 - USER 테이블명은 예약어 회피로 `app_user`, 로그인 아이디 `username` 컬럼 추가. 비밀번호 평문 저장은 결정 문서를 따랐으며 운영 전 보안 검토가 필요하다.
-- 지하철 승하차(N-5)·긴급재난문자(N-2, Phase 3)·특일정보(REQ-10, Phase 2) 커넥터는 만들지 않았다. 지방행정 인허가 변동분 API(N-1)는 미신청이라 `pipeline.toml`의 `sources.PERMIT_DAILY.url`이 비어 있으며, 비어 있으면 전일 스냅샷 폴백으로 동작한다.
+- 지하철 승하차(N-5)·긴급재난문자(N-2, Phase 3)·특일정보(REQ-10, Phase 2)·국민연금 가입 사업장(NPS) 커넥터는 만들지 않았다. 지방행정 인허가 변동분(N-1)은 2026-10-08부터 행안부 업종별 인허가 조회서비스(`https://apis.data.go.kr/1741000/{업종}/info`, 9개 업종 중 통신판매업 비활성)로 연동한다(`pipeline.toml` `[sources.PERMIT_DAILY]`, `api/11-api-spec.md`).

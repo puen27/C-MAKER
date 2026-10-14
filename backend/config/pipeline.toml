@@ -143,7 +143,7 @@ service_id = "01_01_01_P"
 name = "병원"
 path = "hospitals"
 [[sources.PERMIT_DAILY.options.services]]
-service_id = "pharmacies"     # 구 개방서비스ID 미확인 — 확인되면 교체(기존 적재분 관리번호 접두어도 함께 바뀜)
+service_id = "01_01_06_P"     # 2026-10-14 확인(구 임시값 "pharmacies" → 기존 DB는 patches/2026-10-14_permit_service_ids.sql)
 name = "약국"
 path = "pharmacies"
 [[sources.PERMIT_DAILY.options.services]]
@@ -151,7 +151,7 @@ service_id = "03_11_03_P"
 name = "숙박업"
 path = "lodgings"
 [[sources.PERMIT_DAILY.options.services]]
-service_id = "fitness_centers"  # 구 개방서비스ID 미확인
+service_id = "10_42_01_P"     # 2026-10-14 확인(구 임시값 "fitness_centers" → 기존 DB는 patches/2026-10-14_permit_service_ids.sql)
 name = "체력단련장업"
 path = "fitness_centers"
 [[sources.PERMIT_DAILY.options.services]]

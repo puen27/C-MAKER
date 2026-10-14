@@ -1,7 +1,7 @@
 # C-MAKER 실행 계획
 
-- **버전**: v1.4.0
-- **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
+- **버전**: v1.5.0
+- **작성일**: 2026-08-26 (최종 수정: 2026-10-14)
 
 ---
 
@@ -15,6 +15,7 @@
 | v1.2.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` 8단계 체크리스트 반영: POP 워크스트림 신설, 스프린트 1~2에 DATA-00(인허가 전수 커넥터)·POP-01(모집단 적재) 추가 — REQ-05의 선행 조건이므로 스프린트 3~4가 아닌 1~2로 배치. DATA-01/BATCH-01을 REQ-02 재정의(인허가 1차·국세청 2차)에 맞게, DATA-02~07/BATCH-02/BATCH-03을 인허가 변동분·신선도 항·사유 계층(RULE-TARGET-05/06)에 맞게 갱신. MVP 대상 REQ에 REQ-16 추가, M1 마일스톤에 모집단 적재 포함 |
 | v1.3.0 | 2026-09-08 | 배치 지연/실패 대비 수동 재연동(REQ-17, UC-18) 반영: 스프린트 6에 API-06(수동 재실행 API)·FE-07(수동 재연동 버튼) 추가, MVP 대상 REQ에 REQ-17 추가 |
 | v1.4.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: 스프린트 1~2에서 API-01(지점 등록·수정 API)·FE-01(지점 등록 화면)을 제거(UC-01·UC-02·API-01 MVP 스코프 제외, 운영자 psql 직접 입력으로 대체), SETUP-01 완료 기준에서 지오코딩 관련 문구 제거. 신규 GEO-01(좌표 지오코딩 배치, RULE-BRANCH-03) 작업 추가. INFRA-03 완료 기준에서 "UC-01 완료" 표현을 "지점 데이터 psql 적재 완료"로 정정 |
+| v1.5.0 | 2026-10-14 | 구현 현행화: API-06 파일명 점 표기를 실제 파일명(`batch_router.py`/`batch_service.py`)으로 정정. §2.1 MVP 구현 현황(git log 2026-09-29~10-14·코드 존재 기준) 신설, 2026-10-08~10-14 추가 작업(MOIS 인허가 전환, 화법 구조, 예보 신호, UI 제안 반영, 10/13 수정 요청)을 '추가 반영' 항목으로 기록 |
 
 ---
 
@@ -84,7 +85,7 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 | API-03 | 태깅 저장 API | REQ-08, UC-09 | VAL-06, 클릭 1회 저장 확인 |
 | FE-04 | 태깅 버튼 컴포넌트 + 미태깅 상기 배너 | UC-09 | SC-03 정상/예외 흐름 통과 |
 | API-04 | CRM 등록 파일 생성 API | REQ-07, UC-08 | 다운로드 파일이 CRM 컬럼 매핑과 일치(`[CRM팀 확인 필요]` 스펙 확정 후) |
-| FE-05 | CRM 파일 다운로드 버튼 | UC-08 | 수작업 편집 없이 등록 가능함을 CRM팀과 교차 확인 |
+| FE-05 | CRM 등록 파일 다운로드 버튼 | UC-08 | 수작업 편집 없이 등록 가능함을 CRM팀과 교차 확인 |
 | API-05 | 임계치 관리자 설정 API | REQ-14, UC-15 | VAL-05, 변경 이력 저장 확인 |
 | FE-06 | 임계치 관리 화면(본부용) | UC-15 | SC-04 정상/예외 흐름 통과 |
 | INFRA-01 | 감사 추적 로그 저장 구조 | REQ-15 | 추천·브리프·태깅·임계치 변경 이력이 1년 보존 정책으로 저장됨 |
@@ -94,12 +95,34 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 | ID | 작업 | 관련 REQ/UC | 완료 기준 |
 |---|---|---|---|
 | INFRA-02 | 07:30 SLA 모니터링 및 배치 실패 알림 | `2-prd.md` 6장 | 4주 연속 SLA 충족 측정 시작 |
-| API-06 | 배치 수동 재실행 API(`batch.router.py`/`batch.service.py`) — 권한 검증, 중복 실행 방지, 쿨다운 | REQ-17, UC-18 | RULE-SENSE-06·VAL-12 단위 테스트 통과, `BATCH_RUN` 기록 확인 |
+| API-06 | 배치 수동 재실행 API(`batch_router.py`/`batch_service.py`) — 권한 검증, 중복 실행 방지, 쿨다운 | REQ-17, UC-18 | RULE-SENSE-06·VAL-12 단위 테스트 통과, `BATCH_RUN` 기록 확인 |
 | FE-07 | 수동 재연동 버튼(`ManualBatchTrigger`) + 상태 폴링(`useBatchRunStatus`) | REQ-17, UC-18 | UC-18 인수 기준 6항목 전부 통과(SC-09) |
 | INFRA-03 | 파일럿 지점 온보딩(데이터 이관, 계정 발급) | `2-prd.md` 10장 미해결 이슈 3 | 파일럿 지점 전원 운영자 psql 직접 입력으로 BRANCH·USER 적재 완료(UC-01·UC-02 MVP 스코프 제외) |
 | TEST-01 | 재현성 회귀 테스트(TEST-06) 1차 실행 | PRIN-08 | 동일 스냅샷 재실행 시 동일 산출물 확인 |
 
 **MVP 종료 조건**(`2-prd.md` 8장): 태깅률 70%, 명부 내 휴폐업 포함 0건, 07:30 SLA 4주 연속 충족.
+
+### 2.1 MVP 구현 현황 (2026-10-14 기준)
+
+git log(2026-09-29~10-14)와 저장소 코드 존재로 확인한 상태다. '완료'는 해당 코드·테스트가 존재함을 뜻하며, UC 인수 기준·CRM팀 교차 확인·파일럿 운영 지표 충족 여부는 이 표로 판단하지 않는다.
+
+| 상태 | 작업 ID | 근거 |
+|---|---|---|
+| 완료 | SETUP-01~03, GEO-01, DATA-00, POP-01, DATA-01, BATCH-01~03, API-02~06, FE-02~07, INFRA-01 | `backend/database/schema.sql`(branch 이력 트리거·`audit_log`), `geocoding/geocode_job.py`, `permit_connector.py`, `population/business_loader.py`·`run_monthly.py`, `nts_connector.py`, `normalizers/`·`sensing/`·`targeting/`, `api/routers/*_router.py`, `frontend/src/pages`·`components`, `backend/tests/test_event_promoter.py`·`test_targeting.py` |
+| 완료(대체 구현) | SETUP-04, BATCH-04 | Bedrock 대신 LiteLLM Gateway(`common/config.py` `llm_*`, `briefing/llm_client.py`)로 구현. `citation_guard.py`·`test_briefing.py`(그라운딩 회귀셋) 존재. Bedrock Agent·Knowledge Base는 미착수 |
+| 부분 | DATA-02~07 | 인허가 변동분·ECOS·오피넷·기상청 특보 커넥터 구현. 지하철·재난문자 커넥터는 미구현 |
+| 부분 | INFRA-02 | `run_daily.py`가 SLA 결과를 BATCH_RUN 통계에 남기고 `SLA_MISSED` 로그를 출력. 외부 알림 발송은 없음 |
+| 미확인 | INFRA-03, TEST-01(재현성 회귀, TEST-06) | 파일럿 지점 계정 적재는 운영 DB 확인 필요. 동일 스냅샷 재실행 비교 테스트는 별도 파일이 없음(`test_targeting.py`의 시드 재현성 검사만 존재) |
+
+**추가 반영 (계획 외 작업)**
+
+| ID | 날짜 | 작업 | 근거 |
+|---|---|---|---|
+| ADD-01 | 2026-10-08 | 인허가 변동분(PERMIT_DAILY)을 행안부 업종별 인허가 조회서비스(`apis.data.go.kr/1741000/{업종}/info`, 9개 업종 중 통신판매업 비활성)로 전환, 보건소 등 공공기관 배제 | `5b2c2f0`, `pipeline.toml` `[sources.PERMIT_DAILY]`, `api/11-api-spec.md` |
+| ADD-02 | 2026-10-08 | 선정 사유 사실 문장 보강, 화법 3문장 구조(인사·사유 / 목적 / 방문 요청), 기관명 NH농협은행 | `1d8eb5e`, `897a620` |
+| ADD-03 | 2026-10-13 | 기상청 예보 신호 4종(KMA_FORECAST)·초단기실황 스냅샷(KMA_NOWCAST)·날씨 참고, 신호별 명부 상한(`SIGNAL_SHARE_CAP_PCT` 30%), 일일 이벤트 상한 8→12 | `e9cb038`, `backend/database/patches/2026-10-13_forecast_signals.sql` |
+| ADD-04 | 2026-10-13~14 | NH Campaigner UI 제안 P0/P1 반영(CI 컬러 토큰, 데이터 기준일 스탬프, 오늘 기록 패널, 신호 막대 필터 등), 공식 시그니처 적용 | `6d51f2e`, `f650719`, `d6407ad`, `c68ad40` |
+| ADD-05 | 2026-10-14 | 10/13 수정 요청 반영: 신호명 표시, 같은 건물 상한(`same_address_cap`=2), 1줄 사실 요약, 추천상품 매핑(`[product_mapping]`), CRM 등록 파일(방문함 건만) | `c91d12c`, `d245aec`, `be13459` |
 
 ---
 
@@ -153,5 +176,5 @@ MVP는 2주 스프린트 6회(12주)로 운영하고, Phase 2·3는 스프린트
 - `2-prd.md` (v1.4.0): 3장 범위 우선순위, 5장 기술 스택(AWS Bedrock), 8장 일정, 9장 리스크, 10장 미해결 이슈
 - `report/db-schema-decisions-review.md`: 지점 등록·수정 API/화면 제외, 지오코딩 배치 분리 결정 근거
 - `3-user-scenario.md` (v1.2.0): SC-01~09 (완료 기준의 시나리오 근거)
-- `4-project-principle.md` (v1.5.0): 6장 디렉토리 구조 (작업 항목의 코드 위치 근거)
+- `4-project-principle.md` (v1.6.0): 6장 디렉토리 구조 (작업 항목의 코드 위치 근거)
 - `report/CHANGE-REQUEST_v1.md`: POP 워크스트림·스프린트 재배치 근거

@@ -47,9 +47,9 @@
 | 통신판매업 | `08_26_04_P` | `https://apis.data.go.kr/1741000/ecommerce_businesses` |
 | 의원 | `01_01_02_P` | `https://apis.data.go.kr/1741000/clinics` |
 | 병원 | `01_01_01_P` | `https://apis.data.go.kr/1741000/hospitals` |
-| 약국 | — | `https://apis.data.go.kr/1741000/pharmacies` |
+| 약국 | `01_01_06_P` | `https://apis.data.go.kr/1741000/pharmacies` |
 | 숙박업 | `03_11_03_P` | `https://apis.data.go.kr/1741000/lodgings` |
-| 체력단련장업 | — | `https://apis.data.go.kr/1741000/fitness_centers` |
+| 체력단련장업 | `10_42_01_P` | `https://apis.data.go.kr/1741000/fitness_centers` |
 
 - **업종 필터 = 호출하는 End Point**입니다. 전 업종을 한 번에 받는 API는 없습니다.
 - 붙임2 목록은 `http://`로 적혀 있으나 마이페이지 End Point는 `https://`입니다. **https를 쓰십시오.**
@@ -323,7 +323,7 @@ r = requests.get(URL, params=params, timeout=30)
 | 2 | ~~통신판매업 `BRNO` 제공 여부~~ → **미제공**. 국세청 연계 불가 | ✅ 2026-10-07 |
 | 3 | 파일럿 지자체 `OPN_ATMY_GRP_CD` — 지점 5곳 + 반경이 걸치는 인접 구로 `pipeline.toml` `region_codes`에 설정. 기획 확정 필요 | 기획 |
 | 4 | ~~배제 필터에 의원 업태 `보건소·보건지소·보건진료소·보건의료원` 추가~~ → `pipeline.toml` `[exclusion] excluded_permit_keywords` | ✅ 2026-10-07 |
-| 5 | 약국·체력단련장업의 구 개방서비스ID 확인 → `pipeline.toml` `service_id` 교체 (현재 경로명 임시값) | 개발 |
+| 5 | ~~약국·체력단련장업의 구 개방서비스ID 확인 → `pipeline.toml` `service_id` 교체~~ → 약국 `01_01_06_P`, 체력단련장업 `10_42_01_P`(서울 열린데이터광장 `LOCALDATA_010106`·`LOCALDATA_104201` 실호출로 확인). 기존 DB는 `backend/database/patches/2026-10-14_permit_service_ids.sql` | ✅ 2026-10-14 |
 
 ---
 

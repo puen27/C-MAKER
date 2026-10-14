@@ -1,8 +1,22 @@
-# DB 스키마 변경 검토 — USER/BRANCH (미반영)
+# DB 스키마 변경 검토 — USER/BRANCH (반영 완료)
 
-- **작성일**: 2026-09-08
-- **상태**: 검토만 완료, 공식 문서(`1-domain-definition.md`, `6-erd.md` 등) 미반영
+- **버전**: v1.1.0
+- **작성일**: 2026-09-08 (최종 수정: 2026-10-14)
+- **상태**: 반영 완료(`6-erd.md`, `backend/database/schema.sql`)
 - **목적**: USER/BRANCH 테이블 운영 방식 변경에 대해 논의한 결정 사항을 한 곳에 모아, 추후 공식 문서에 반영할 때 참고한다.
+
+> **구현 시 달라진 점** (결정 내용 자체는 유지)
+> - 모든 테이블은 전용 스키마 `cmaker`에 생성한다(공유 DB `myapp_db`의 기존 테이블과 이름 충돌 방지).
+> - USER의 실제 테이블명은 `app_user`다(PostgreSQL 예약어 회피). 로그인 아이디 컬럼 `username`(UNIQUE)이 추가되었다.
+
+---
+
+## 변경 이력
+
+| 버전 | 날짜 | 내용 |
+|---|---|---|
+| v1.0.0 | 2026-09-08 | USER/BRANCH 운영 방식 결정 사항 정리(공식 문서 미반영 상태) |
+| v1.1.0 | 2026-10-14 | 상태를 "반영 완료(`6-erd.md`, `backend/database/schema.sql`)"로 갱신. 구현 차이(`cmaker` 스키마, `app_user` 테이블명, `username` 추가, 트리거 이름, cron 시각) 주석 추가 |
 
 ---
 
@@ -14,6 +28,8 @@
 | 비밀번호 저장 | 평문 저장. 해싱 미적용 |
 | 컬럼명 | `password_hash` → `password`로 변경 (평문 저장에 맞춤) |
 | 계정 등록 기능 | F-0 "담당자 계정 등록" 요구사항 스코프 제외 |
+
+> 구현: 테이블명 `app_user`, `password VARCHAR(200)` 평문. `username`(UNIQUE)·`is_active` 컬럼 추가.
 
 ## 2. BRANCH 테이블
 
@@ -33,6 +49,8 @@
   - `effective_from`을 트리거로 "다음 날 07:30"으로 자동 갱신 (INSERT + UPDATE 양쪽 트리거 필요)
   - F-1 배치는 `effective_from <= 오늘 07:30`인 값만 사용, 그 전까지는 히스토리의 옛 값 사용
 - **07:30 F-1 배치 자체(외부 데이터 소스 신호 감지)는 그대로 유지** — 수동 트리거 방식으로 바꾸지 않음
+
+> 구현: 이력 테이블 `branch_history`(`valid_from`/`valid_until`), 트리거 함수 `branch_apply_effective_from()` + 트리거 `trg_branch_effective_from`(INSERT/UPDATE 단일 트리거, `SET search_path = cmaker, pg_temp`). 추적 대상 값이 바뀌지 않은 UPDATE는 `effective_from`을 기존 값으로 고정한다. 일간 배치 cron은 06:00 KST 시작, 07:30이 완료 SLA다(`deploy/c-maker.cron`).
 
 ## 4. lat/lng (지오코딩)
 

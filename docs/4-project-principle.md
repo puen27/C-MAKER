@@ -1,7 +1,7 @@
 # C-MAKER 프로젝트 구조 설계 원칙
 
-- **버전**: v1.5.0
-- **작성일**: 2026-08-26 (최종 수정: 2026-09-08)
+- **버전**: v1.6.0
+- **작성일**: 2026-08-26 (최종 수정: 2026-10-14)
 
 ---
 
@@ -17,6 +17,7 @@
 | v1.3.0 | 2026-09-08 | `report/CHANGE-REQUEST_v1.md` CHG-07 반영: `localdata_connector`를 `permit_connector`로 개명하고 전수/변동분 함수 분리(NAME-B03), 6장 백엔드 디렉토리에 `population/`(모집단 적재)·`run_monthly.py`·`common/geo.py`·`common/schemas/business.py`·`targeting/reason_tier.py` 추가, `population`이 일간 SLA 파이프라인과 분리된 별도 진입점임을 §2에 명시 |
 | v1.4.0 | 2026-09-08 | 배치 수동 재실행(REQ-17, UC-18) 반영: API 서버 레이어에 `batch.router.py`/`batch.service.py`/`batch_run.repository.py` 추가하고 수동 재실행 처리 방식(별도 프로세스 기동, 요청 즉시 응답) 명시; 프론트엔드에 `batch.api.ts`·`useTriggerBatch`·`useBatchRunStatus`·`ManualBatchTrigger.tsx`·`batchRun.ts` 추가 |
 | v1.5.0 | 2026-09-08 | `report/db-schema-decisions-review.md` 검토 결과 반영: 지점·계정 등록/수정 전용 화면·API를 만들지 않기로 함에 따라 백엔드 `branches.router.py`/`branch.service.py`/`branch.repository.py`, 프론트엔드 `branch.api.ts`/`useBranch.ts`/`components/branch/BranchSetupForm.tsx`/`pages/BranchSetupPage.tsx`를 디렉토리 구조에서 제거(API-01·FE-01·UC-01·UC-02 MVP 스코프 제외). 백엔드에 좌표 지오코딩 전용 배치(`geocoding/geocode_job.py`, 10분 주기, `run_daily.py`와 무관한 별도 진입점) 추가. TEST-04 예시에서 "지점 등록·수정"을 제거 |
+| v1.6.0 | 2026-10-14 | 구현 현행화: Bedrock AI Agent + KB는 목표 아키텍처(PRD 결정)로 유지하고 현재 MVP 구현(LiteLLM Gateway, OpenAI 호환 Chat Completion, `briefing/llm_client.py`, RAG 미구현)을 §0·§2·OPS-01·OPS-06·6장에 병기. 백엔드 API 레이어 파일명 점 표기(`auth.router.py` 등)를 실제 밑줄 표기(`batch_service.py` 등)로 정정하고 NAME-B01에 명시. OPS-09 스키마 경로를 `backend/database/schema.sql`·`patches/`로 정정. 6장 트리에 실제 커넥터(`kma_forecast_connector.py`, `vworld_connector.py`) 추가 및 MVP 미구현 항목 주석 |
 
 ---
 
@@ -28,6 +29,7 @@
 
 - **배치와 API는 별도 실행 단위**다. 배치(신호 감지·스코어링·브리프 생성·학습)는 매일/매주/분기 주기로 실행되는 파이프라인이고, API 서버는 대시보드·태깅·CRM 파일 요청에 상시 응답한다. 둘은 같은 저장소·DB 스키마를 공유하되 프로세스는 분리한다.
 - **판단은 코드, 문장은 AWS Bedrock AI Agent** (`2-prd.md` v1.2.0 5장 아키텍처 결정). 배치의 스코어링·배제·임계치 판정 단계에는 어떤 생성형 AI 호출도 두지 않는다. Bedrock AI Agent는 브리프·캠페인 문구 생성 단계에서만, Action Group(도구)과 Knowledge Base(RAG)를 통해서만 호출한다.
+  - **목표 아키텍처**는 위 Bedrock AI Agent + Knowledge Base(PRD 결정)이다. **현재 MVP 구현**은 LiteLLM Gateway(OpenAI 호환 Chat Completion, `backend/batch/briefing/llm_client.py`)를 브리프 화법 생성에만 호출하며, RAG(Knowledge Base)는 미구현이다. "판단은 코드, 문장은 생성형 AI" 경계는 동일하게 지킨다.
 - **백엔드**: Python 3.12 + FastAPI + psycopg(ORM 미사용, 직접 SQL). **프론트엔드**: React 19 + TypeScript + Zustand(클라이언트 상태) + TanStack Query(서버 상태). **DB**: PostgreSQL 17.
 - 과도한 추상화·설계는 금지한다. 배치 오케스트레이션 프레임워크(Airflow, Prefect 등), 이벤트 버스, 마이크로서비스 분리는 이 프로젝트 규모(단일 배치 SLA, 지점 수백 단위)에 맞지 않으므로 도입하지 않는다.
 
@@ -65,14 +67,14 @@ connectors (소스별 원본 수집, DATA_SOURCE_SNAPSHOT 적재)
   → normalizers (SIGNAL로 정규화, 기준일 부여)
     → sensing (임계치 판정 → EVENT 승격, RULE-SENSE-01~05)
       → targeting (배제 → 스코어링 → TOP 20, 그중 3건은 탐색 슬롯, RULE-TARGET-01~06)
-        → briefing (AWS Bedrock AI Agent 호출로 BRIEF 생성, RULE-BRIEF-01~03)
+        → briefing (BRIEF 생성, RULE-BRIEF-01~03 — 목표: AWS Bedrock AI Agent / 현재 MVP: LiteLLM Gateway)
           → export (CRM 파일 생성, DB 저장)
 ```
 
 - `connectors`는 소스 API 호출과 원본 응답의 스냅샷 적재만 담당한다. 정규화 로직을 포함하지 않는다.
 - `sensing`은 도메인 정의서 5.1절(이벤트 승격 판정) 순서를 그대로 구현하는 유일한 위치다.
 - `targeting`은 RULE-TARGET-02 스코어링 공식(신선도 항 R 포함, RULE-TARGET-05)과 RULE-TARGET-03 탐색 슬롯 배정, RULE-TARGET-06 사유 계층 분류를 구현한다. Bedrock을 호출하지 않으며, 이미 `population`이 적재한 BUSINESS를 읽기만 한다(REQ-16, UC-17 선행 조건).
-- `briefing`은 확정된 RECOMMENDATION을 입력받아 문장을 생성하며, Bedrock AI Agent의 Action Group(도구)·Knowledge Base(RAG)로 조회한 값 외의 사실을 인용하면 안 된다(RULE-BRIEF-02). 이 검증(citation guard)은 briefing 내부에서 자체 완결되어야 한다.
+- `briefing`은 확정된 RECOMMENDATION을 입력받아 문장을 생성하며, Bedrock AI Agent의 Action Group(도구)·Knowledge Base(RAG)로 조회한 값 외의 사실을 인용하면 안 된다(RULE-BRIEF-02). 이 검증(citation guard)은 briefing 내부에서 자체 완결되어야 한다. 현재 MVP는 Action Group·RAG 없이 결정론적으로 만든 사실 문장만 LiteLLM Gateway 프롬프트 입력으로 주고, `citation_guard.py`가 사실에 없는 수치·금칙 표현·상품어를 후처리로 차단한다.
 - 학습(`learning`)과 캠페인(`campaign`)은 각각 주간·이벤트 트리거 배치로 별도 진입점을 가지며, 위 일간 파이프라인과 프로세스를 공유하지 않는다.
 - **`population`은 일간 파이프라인에 속하지 않는다.** 월 1회 `run_monthly.py`로 실행되며, 일간 배치는 이미 적재된 BUSINESS를 읽기만 한다. 모집단 적재 실패가 일간 07:30 SLA를 침해하지 않도록 프로세스를 분리한다(REQ-16, UC-17).
 
@@ -89,7 +91,7 @@ routers (라우팅 정의)
 - 서비스는 도메인 규칙(RULE-BRANCH, RULE-CAMPAIGN, RULE-SENSE-06 등 API에서 트리거되는 규칙)을 구현하는 유일한 위치다.
 - 리포지토리는 SQL 실행과 결과 매핑만 담당한다.
 - 인증/권한 검증(JWT 검증, 역할·소속 지점 기반 접근 제어)은 미들웨어에서 공통 처리한다.
-- **배치 수동 재실행(REQ-17)**: `batch.service.py`가 BATCH_RUN을 조회해 RULE-SENSE-06(중복 실행 방지)·VAL-12(쿨다운)를 검증한 뒤, `run_daily.py`를 별도 프로세스로 기동하고 즉시 응답한다(API 요청을 배치 완료까지 블로킹하지 않음). 배치 오케스트레이션 프레임워크는 도입하지 않으므로(PRIN-02) `subprocess` 기동 + BATCH_RUN 상태 폴링 이상의 구조를 만들지 않는다.
+- **배치 수동 재실행(REQ-17)**: `batch_service.py`가 BATCH_RUN을 조회해 RULE-SENSE-06(중복 실행 방지)·VAL-12(쿨다운)를 검증한 뒤, `run_daily.py`를 별도 프로세스로 기동하고 즉시 응답한다(API 요청을 배치 완료까지 블로킹하지 않음). 배치 오케스트레이션 프레임워크는 도입하지 않으므로(PRIN-02) `subprocess` 기동 + BATCH_RUN 상태 폴링 이상의 구조를 만들지 않는다.
 
 ### 프론트엔드 레이어 (데이터 흐름)
 
@@ -119,7 +121,7 @@ components / pages (UI 렌더링)
 
 | 식별자 | 대상 | 규칙 |
 |---|---|---|
-| NAME-B01 | 파일명 | `snake_case` (예: `permit_connector.py`, `event_promoter.py`, `weight_updater.py`). |
+| NAME-B01 | 파일명 | `snake_case` (예: `permit_connector.py`, `event_promoter.py`, `weight_updater.py`). API 레이어도 실제 구현은 snake_case 밑줄 표기다(예: `auth_router.py`, `tag_service.py`, `batch_run_repository.py`, `auth_middleware.py`). 점 표기(`auth.router.py`)는 일반 `import` 경로로 쓸 수 없으므로 쓰지 않는다(프론트엔드 `*.api.ts`는 TypeScript라 해당 없음). |
 | NAME-B02 | 함수명 | `snake_case`, 동사로 시작 (예: `fetch_daily_signals`, `promote_event`, `score_recommendation`). |
 | NAME-B03 | 커넥터 함수 | 소스명을 그대로 드러낸다 (예: `nts_connector.fetch_business_status`, `permit_connector.fetch_all_businesses`, `permit_connector.fetch_daily_changes`). 한 소스가 모집단과 신호 두 역할을 하는 경우 함수를 분리하고, 함수명에 역할을 드러낸다. 커넥터 이름은 **데이터의 정체**(예: 지방행정 인허가)를 따르며, 포털·호스트명(예: 옛 `localdata_connector`)을 따르지 않는다 — 취득처가 바뀌어도 이름이 거짓말이 되지 않게 한다 |
 | NAME-B04 | 타입 표기 | Pydantic 모델로 배치 단계 간 데이터, API 요청/응답을 정의한다 (`common/schemas/`). |
@@ -156,15 +158,15 @@ components / pages (UI 렌더링)
 
 | 식별자 | 원칙 |
 |---|---|
-| OPS-01 | 환경변수 관리 | DB 접속 정보, JWT 시크릿, 각 공공데이터 API 인증키는 `.env`로 관리하고 코드에 하드코딩하지 않는다. AWS Bedrock 접근은 API 키가 아니라 IAM 역할/자격증명(리전, Agent ID, Knowledge Base ID 포함)으로 관리하며, 로컬 개발 시에도 장기 액세스 키를 코드에 하드코딩하지 않는다. `.env.example`로 필요한 키 목록만 공유한다. |
+| OPS-01 | 환경변수 관리 | DB 접속 정보, JWT 시크릿, 각 공공데이터 API 인증키는 `.env`로 관리하고 코드에 하드코딩하지 않는다. AWS Bedrock 접근은 API 키가 아니라 IAM 역할/자격증명(리전, Agent ID, Knowledge Base ID 포함)으로 관리하며, 로컬 개발 시에도 장기 액세스 키를 코드에 하드코딩하지 않는다(목표 아키텍처). 현재 MVP의 LiteLLM Gateway 접속 정보(`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` 등)는 `.env`로만 주입한다. `.env.example`로 필요한 키 목록만 공유한다. |
 | OPS-02 | DB 커넥션 풀 | psycopg의 커넥션 풀을 배치 프로세스와 API 프로세스 각각 시작 시 1회 생성해 재사용한다. |
-| OPS-03 | 인증/인가 | 모든 인증 필요 API는 공통 인증 미들웨어에서 JWT를 검증한다. 역할·소속 지점 기반 접근 제어(RM은 본인 소속 지점 데이터만, VAL-08)는 서비스 레이어에서 수행한다. 본부 역할은 마케팅/준법 하위 역할로 구분되며(VAL-08), 캠페인 준법 승인(`campaign.service.py`)은 본부(준법) 역할만 호출 가능하도록 이 레이어에서 검증한다(RULE-CAMPAIGN-01). |
+| OPS-03 | 인증/인가 | 모든 인증 필요 API는 공통 인증 미들웨어에서 JWT를 검증한다. 역할·소속 지점 기반 접근 제어(RM은 본인 소속 지점 데이터만, VAL-08)는 서비스 레이어에서 수행한다. 본부 역할은 마케팅/준법 하위 역할로 구분되며(VAL-08), 캠페인 준법 승인(`campaign_service.py`)은 본부(준법) 역할만 호출 가능하도록 이 레이어에서 검증한다(RULE-CAMPAIGN-01). |
 | OPS-04 | 배치 실패 격리 | 소스 커넥터 하나의 실패가 전체 배치를 중단시키지 않는다. 실패한 소스만 RULE-SENSE-04(전일 스냅샷 폴백)를 적용하고 나머지는 정상 진행한다. |
 | OPS-05 | 스냅샷 보존 | `DATA_SOURCE_SNAPSHOT`은 날짜 파티션으로 적재하며, 감사 추적(REQ-15) 및 재현성 검증(TEST-06)을 위해 최소 1년 보존한다. |
-| OPS-06 | 생성형 AI 호출 격리 | AWS Bedrock AI Agent 호출은 `briefing`/`campaign` 모듈에서만 발생하며, Agent에 등록된 어떤 Action Group·Knowledge Base도 개인 고객정보·거래정보를 반환하지 않는다(RULE-SEC-01). |
+| OPS-06 | 생성형 AI 호출 격리 | AWS Bedrock AI Agent 호출은 `briefing`/`campaign` 모듈에서만 발생하며, Agent에 등록된 어떤 Action Group·Knowledge Base도 개인 고객정보·거래정보를 반환하지 않는다(RULE-SEC-01). 현재 MVP는 `briefing/llm_client.py`(LiteLLM Gateway)에서만 호출하며, 입력은 공개 데이터 기반 사실 문장과 지점명·상호뿐이다. |
 | OPS-07 | CORS | 프론트엔드 배포 origin만 허용한다. 와일드카드(`*`) 허용은 프로덕션에서 사용하지 않는다. |
 | OPS-08 | 로깅 | 배치는 단계별 처리 건수·소요시간·실패 소스를 구조화 로그로 남긴다. API는 요청 단위 기본 로그(메서드, 경로, 상태 코드, 응답 시간)만 남긴다. |
-| OPS-09 | 마이그레이션 | ORM 없이 순수 SQL로 스키마를 관리한다. 저장소 루트의 `database/schema.sql` 단일 파일에 전체 스키마를 정의하고 psql로 직접 실행한다. |
+| OPS-09 | 마이그레이션 | ORM 없이 순수 SQL로 스키마를 관리한다. `backend/database/schema.sql` 단일 파일에 전체 스키마를 정의하고 psql로 직접 실행한다. 이미 운영 중인 DB에 대한 증분 변경은 `backend/database/patches/`의 날짜별 SQL(예: `2026-10-13_forecast_signals.sql`)로 적용한다. |
 
 ---
 
@@ -183,6 +185,8 @@ backend/
 │   │   ├── ecos_connector.py        # 한국은행 ECOS (REQ-03, REQ-11)
 │   │   ├── opinet_connector.py      # 오피넷 유가정보 (REQ-03, REQ-11)
 │   │   ├── kma_connector.py         # 기상청 특보 (REQ-03, REQ-10, REQ-12)
+│   │   ├── kma_forecast_connector.py # 기상청 단기·중기예보(KMA_FORECAST)·초단기실황(KMA_NOWCAST, 관측 축적용)
+│   │   ├── vworld_connector.py      # VWorld 지오코더 (geocoding 배치용, RULE-BRANCH-03)
 │   │   └── disaster_msg_connector.py # 행안부 긴급재난문자 (REQ-12)
 │   ├── population/                 # 사업체 모집단 적재 (REQ-16, UC-17)
 │   │   └── business_loader.py
@@ -196,8 +200,9 @@ backend/
 │   │   ├── scorer.py               # RULE-TARGET-02/05 (Score, 신선도 항 R)
 │   │   ├── reason_tier.py           # RULE-TARGET-06 사유 계층 분류
 │   │   └── exploration.py
-│   ├── briefing/                   # AWS Bedrock AI Agent 브리프 생성 (RULE-BRIEF)
-│   │   ├── bedrock_agent_client.py  # Bedrock Agent 호출 래퍼 (Action Group·Knowledge Base 연동)
+│   ├── briefing/                   # 브리프 생성 (RULE-BRIEF) — 목표: AWS Bedrock AI Agent
+│   │   ├── bedrock_agent_client.py  # [목표] Bedrock Agent 호출 래퍼 (Action Group·Knowledge Base 연동) — 미구현
+│   │   ├── llm_client.py            # [현재 MVP] LiteLLM Gateway 호출 래퍼 (OpenAI 호환 Chat Completion)
 │   │   ├── brief_generator.py
 │   │   └── citation_guard.py        # 근거 없는 문장 차단 (RULE-BRIEF-02)
 │   ├── learning/                   # 채택률 집계 및 가중치 갱신 (RULE-LEARN)
@@ -214,25 +219,25 @@ backend/
 │   └── run_quarterly.py              # 분기 신호 배치 진입점
 ├── api/
 │   ├── routers/
-│   │   ├── recommendations.router.py
-│   │   ├── tags.router.py
-│   │   ├── thresholds.router.py
-│   │   ├── campaigns.router.py
-│   │   ├── adoption.router.py
-│   │   └── batch.router.py          # 배치 수동 재실행 (REQ-17, UC-18)
+│   │   ├── recommendations_router.py
+│   │   ├── tags_router.py
+│   │   ├── thresholds_router.py
+│   │   ├── campaigns_router.py
+│   │   ├── adoption_router.py
+│   │   └── batch_router.py          # 배치 수동 재실행 (REQ-17, UC-18)
 │   ├── services/
-│   │   ├── tag.service.py           # 태깅 저장 (RULE-LEARN-01/02)
-│   │   ├── threshold.service.py     # 임계치·가중치 관리자 설정 (REQ-14)
-│   │   ├── campaign.service.py      # 승인 흐름 (RULE-CAMPAIGN-01)
-│   │   └── batch.service.py         # 수동 재실행 권한·쿨다운·중복실행 검증 (RULE-SENSE-06, VAL-12)
+│   │   ├── tag_service.py           # 태깅 저장 (RULE-LEARN-01/02)
+│   │   ├── threshold_service.py     # 임계치·가중치 관리자 설정 (REQ-14)
+│   │   ├── campaign_service.py      # 승인 흐름 (RULE-CAMPAIGN-01)
+│   │   └── batch_service.py         # 수동 재실행 권한·쿨다운·중복실행 검증 (RULE-SENSE-06, VAL-12)
 │   ├── repositories/
-│   │   ├── recommendation.repository.py
-│   │   ├── tag.repository.py
-│   │   ├── campaign.repository.py
-│   │   └── batch_run.repository.py  # BATCH_RUN CRUD
+│   │   ├── recommendation_repository.py
+│   │   ├── tag_repository.py
+│   │   ├── campaign_repository.py
+│   │   └── batch_run_repository.py  # BATCH_RUN CRUD
 │   ├── middlewares/
-│   │   ├── auth.middleware.py
-│   │   └── error.middleware.py
+│   │   ├── auth_middleware.py
+│   │   └── error_middleware.py
 │   └── app.py
 ├── common/
 │   ├── config.py                    # .env 로드
@@ -247,10 +252,14 @@ backend/
 │   │   └── business.py               # BUSINESS 모집단 적재 계약 (REQ-16)
 │   └── snapshot_store.py            # DATA_SOURCE_SNAPSHOT 적재/조회
 ├── database/
-│   └── schema.sql
-├── .env.example
-└── pyproject.toml
+│   ├── schema.sql
+│   ├── seed.sql
+│   └── patches/                     # 운영 DB 증분 패치 (OPS-09)
+├── .env.example                     # 실제 위치는 저장소 루트
+└── pyproject.toml                   # 실제 위치는 저장소 루트
 ```
+
+> **현재 MVP 구현과의 차이(2026-10-14 기준)**: `subway_connector.py`·`disaster_msg_connector.py`, `learning/`·`campaign/`, `run_weekly.py`·`run_quarterly.py`, `campaigns_router.py`·`adoption_router.py` 및 캠페인 서비스·리포지토리는 아직 만들지 않았다(Phase 2·3 또는 미연동 소스). 반대로 실제로는 `auth_router.py`·`auth_service.py`, `recommendation_service.py`, `audit_repository.py`(감사 추적 `audit_log`), `logging_middleware.py`, `normalizers/forecast_normalizer.py`·`permit_parser.py`, `common/config.py`가 읽는 `backend/config/pipeline.toml`(판정 구조·`[product_mapping]` 추천상품 매핑) 등이 추가되어 있다. 구현 기준은 `CLAUDE.md` §10·`10-implementation-guide.md`를 따른다.
 
 ### 프론트엔드 (React 19 + TypeScript + Zustand + TanStack Query)
 
