@@ -13,13 +13,25 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from backend.batch.connectors.http_client import FetchResult, SourceFetchError, request_json, require
+from backend.batch.connectors.http_client import (
+    FetchResult,
+    SourceFetchError,
+    SourceNotConfiguredError,
+    request_json,
+    require,
+)
 
 # 단기예보에서 판정에 쓰는 항목만 보관한다(스냅샷 크기 절감).
 SHORT_CATEGORIES = frozenset({"TMN", "TMX", "POP", "PTY", "SNO"})
+
+# data.go.kr 게이트웨이는 간헐적으로 즉시 오류(비JSON·비정상 resultCode)를 돌려준다(2026-10-15 06:03 사례).
+# 호출 단위로 짧게 재시도한다. 횟수·간격은 pipeline.toml options로 조정할 수 있다.
+DEFAULT_RETRIES = 2
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 
 
 def _items(payload: Any) -> list[dict[str, Any]]:
@@ -32,6 +44,22 @@ def _items(payload: Any) -> list[dict[str, Any]]:
         raise SourceFetchError(f"기상청 예보 API 오류: {header.get('resultCode')} {header.get('resultMsg')}")
     items = ((response.get("body") or {}).get("items") or {}).get("item", [])
     return items if isinstance(items, list) else [items]
+
+
+def _fetch_items(url: str, params: dict[str, Any], service_key: str, options: dict[str, Any]) -> list[dict[str, Any]]:
+    """호출 1건 + 응답 판정. SourceFetchError면 retries회까지 선형 백오프로 재시도한다."""
+    retries = max(0, int(options.get("retries", DEFAULT_RETRIES)))
+    backoff = float(options.get("retry_backoff_seconds", DEFAULT_RETRY_BACKOFF_SECONDS))
+    for attempt in range(retries + 1):
+        try:
+            return _items(request_json("GET", url, params={**params, "serviceKey": service_key}))
+        except SourceNotConfiguredError:
+            raise
+        except SourceFetchError:
+            if attempt >= retries:
+                raise
+            time.sleep(backoff * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def grid_key(nx: int, ny: int) -> str:
@@ -69,10 +97,10 @@ def fetch_forecasts(
             "nx": nx,
             "ny": ny,
         }
-        payload = request_json("GET", f"{base}/{options['short_path']}", params={**params, "serviceKey": service_key})
+        items = _fetch_items(f"{base}/{options['short_path']}", params, service_key, options)
         short[grid_key(nx, ny)] = [
             {key: item.get(key) for key in ("category", "fcstDate", "fcstTime", "fcstValue")}
-            for item in _items(payload)
+            for item in items
             if item.get("category") in SHORT_CATEGORIES
         ]
     if not any(short.values()):
@@ -86,14 +114,12 @@ def fetch_forecasts(
     try:
         for reg_id in sorted(set(mid_ta_regions)):
             params = {"pageNo": 1, "numOfRows": 10, "dataType": "JSON", "regId": reg_id, "tmFc": tm_fc}
-            items = _items(request_json("GET", f"{base}/{options['mid_ta_path']}",
-                                        params={**params, "serviceKey": service_key}))
+            items = _fetch_items(f"{base}/{options['mid_ta_path']}", params, service_key, options)
             if items:
                 mid_ta[reg_id] = items[0]
         for reg_id in sorted(set(mid_land_regions)):
             params = {"pageNo": 1, "numOfRows": 10, "dataType": "JSON", "regId": reg_id, "tmFc": tm_fc}
-            items = _items(request_json("GET", f"{base}/{options['mid_land_path']}",
-                                        params={**params, "serviceKey": service_key}))
+            items = _fetch_items(f"{base}/{options['mid_land_path']}", params, service_key, options)
             if items:
                 mid_land[reg_id] = items[0]
     except SourceFetchError as exc:
@@ -136,7 +162,7 @@ def fetch_nowcast(
     for nx, ny in sorted(set(grids)):
         params = {"pageNo": 1, "numOfRows": 20, "dataType": "JSON", "base_date": base_date,
                   "base_time": base_time, "nx": nx, "ny": ny}
-        items = _items(request_json("GET", f"{base_url.rstrip('/')}/{path}", params={**params, "serviceKey": service_key}))
+        items = _fetch_items(f"{base_url.rstrip('/')}/{path}", params, service_key, {})
         observed[grid_key(nx, ny)] = {str(item.get("category")): item.get("obsrValue") for item in items}
     return FetchResult(
         payload={"base_date": base_date, "base_time": base_time, "grids": observed},

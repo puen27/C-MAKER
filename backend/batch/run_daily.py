@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any
+from urllib.parse import quote
 
 import psycopg
 
@@ -40,7 +41,7 @@ from backend.batch.connectors import (
     opinet_connector,
     permit_connector,
 )
-from backend.batch.connectors.http_client import FetchResult, SourceNotConfiguredError
+from backend.batch.connectors.http_client import FetchResult, SourceFetchError, SourceNotConfiguredError
 from backend.batch.normalizers import forecast_normalizer
 from backend.batch.normalizers import signal_normalizer as normalizer
 from backend.batch.normalizers.permit_parser import is_excluded_permit, parse_permit_row
@@ -129,6 +130,22 @@ def _safe_error_name(exc: Exception) -> str:
     return type(exc).__name__
 
 
+_ERROR_DETAIL_MAX = 200
+
+
+def _log_error_detail(exc: Exception) -> str | None:
+    """로그 전용 원인 문구. 커넥터가 직접 만든 SourceFetchError 메시지만 남기고(상태/통계에는 넣지 않는다),
+    혹시 섞인 인증키는 가린다. 그 밖의 예외 메시지는 비밀값이 섞일 수 있어 남기지 않는다."""
+    if not isinstance(exc, SourceFetchError):
+        return None
+    detail = str(exc)
+    key = get_settings().data_go_kr_service_key
+    if key:
+        for secret in {key, quote(key, safe="")}:
+            detail = detail.replace(secret, "***")
+    return detail[:_ERROR_DETAIL_MAX]
+
+
 def _mark_source_unavailable(outcome: SourceOutcome, exc: Exception, note: str) -> SourceOutcome:
     return SourceOutcome(
         source_name=outcome.source_name,
@@ -172,7 +189,8 @@ def collect_source(
     except Exception as exc:  # noqa: BLE001 — 소스별 실패 격리
         error = _safe_error_name(exc)
         level = logging.WARNING if isinstance(exc, SourceNotConfiguredError) else logging.ERROR
-        log_fields(logger, level, "소스 수집 예외", source=source_name, error=error)
+        log_fields(logger, level, "소스 수집 예외", source=source_name, error=error,
+                   detail=_log_error_detail(exc))
         with get_connection() as conn:
             fallback = find_latest_snapshot(conn, source_name, target_date)
         if fallback is None:
